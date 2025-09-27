@@ -56,7 +56,8 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}})
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+# CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}})
 
 COST_SCALE = [5, 10, 15, 30, 50, 150]
 
@@ -257,4 +258,4 @@ def next_test():
 if __name__ == "__main__":
     print("Loaded COST_SCALE:", COST_SCALE)
     print("Routes:\n", app.url_map)
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5050)
