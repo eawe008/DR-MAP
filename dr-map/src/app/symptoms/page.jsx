@@ -13,11 +13,22 @@ export default function SymptomsPage() {
     // getSymptoms() returns all non-empty values and trims the trailing empty row
     const symptoms = displayRef.current?.getSymptoms?.() ?? [];
     console.log(symptoms)
-    // (optional) navigate first
-    router.push("/graph");
-    // send to Flask
-    const data = await fetchDiagnosis(symptoms);
-    console.log("Flask response:", data);
+    
+    try {
+      // send to Flask
+      const data = await fetchDiagnosis(symptoms);
+      console.log("Flask response:", data);
+      
+      // Pass data to graph page via URL parameters (encoded)
+      const encodedData = encodeURIComponent(JSON.stringify(data));
+      router.push(`/graph?data=${encodedData}`);
+    } catch (error) {
+      console.error("Error fetching diagnosis:", error);
+      // Still navigate to graph page with just symptoms if API fails
+      // const fallbackData = { allSymptoms: symptoms, diseases: [], tests: [] };
+      // const encodedData = encodeURIComponent(JSON.stringify(fallbackData));
+      // router.push(`/graph?data=${encodedData}`);
+    }
   };
 
   return (

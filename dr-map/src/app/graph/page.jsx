@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataSet, Network } from "vis-network/standalone";
+import { fetchDiagnosis } from "@/lib/diagnosisApi";
 import {
   HoverCard,
   HoverCardContent,
@@ -97,12 +99,31 @@ function makeAddDiagnosisNode(id, x, y, parentSymptomId) {
 }
 
 export default function DiagnosticMapPage() {
+  const searchParams = useSearchParams();
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const networkRef = useRef(null);
   const nodesRef = useRef(null);
   const edgesRef = useRef(null);
   const idCounters = useRef({ S: 1, D: 1, T: 1, AD: 0 });
+
+  // Parse API data from URL parameters
+  const getApiData = () => {
+    try {
+      const dataParam = searchParams.get('data');
+      if (dataParam) {
+        return JSON.parse(decodeURIComponent(dataParam));
+      }
+    } catch (error) {
+      console.error("Error parsing API data from URL:", error);
+    }
+    // Fallback data if no URL params or parsing fails
+    return {
+      allSymptoms: ["fever", "cough"],
+      diseases: ["Influenza"],
+      tests: [{ test_name: "Rapid antigen", test_description: "Nasal swab ~15m", cost_weight: 10 }]
+    };
+  };
 
   // which nodes show a hover card? (you can make this dynamic later)
   const HOVERABLE = useRef(new Set(["S", "D", "T"])); // by type; we’ll check per-node
@@ -156,89 +177,91 @@ export default function DiagnosticMapPage() {
     return { x: pos.x + dx, y: pos.y + dy };
   };
 
-  // Place/add a "+" node for a symptom; keep it left of all existing D children
-  const attachOrRepositionAddDiagnosis = (symptomId) => {
-    const sPos = networkRef.current?.getPositions([symptomId])?.[symptomId];
-    if (!sPos) return;
 
-    // count D children
-    const edgesFromS = edgesRef.current.get({
-      filter: (e) => e.from === symptomId,
-    });
-    const dChildren = edgesFromS.filter((e) => {
-      const n = nodesRef.current.get(e.to);
-      return n?.type === "D";
-    }).length;
-
-    // target position for "+" (one slot further left than current leftmost D)
-    const targetX = sPos.x - GAP_X * (dChildren + 1);
-    const targetY = sPos.y + GAP_Y;
-
-    // find existing "+" for this symptom
-    const addNodes = nodesRef.current.get({
-      filter: (n) => n.type === "AD" && n.meta?.parentSymptomId === symptomId,
-    });
-
-    if (addNodes.length) {
-      // reposition existing "+"
-      nodesRef.current.update({ id: addNodes[0].id, x: targetX, y: targetY });
-    } else {
-      // create new "+" and link from S
-      const adId = nextId("AD");
-      nodesRef.current.add(makeAddDiagnosisNode(adId, targetX, targetY, symptomId));
-      edgesRef.current.add({
-        id: `${symptomId}->${adId}`,
-        from: symptomId,
-        to: adId,
-      });
-    }
-  };
-
-  // Convert a "+" node into a real Diagnosis, keep its id/edge, and add a new "+" further left
-  const convertPlusToDiagnosis = (addNodeId, parentSymptomId, label, confidenceInput) => {
-    // parse confidence (accept "72" or "0.72")
-    let conf = parseFloat(String(confidenceInput).trim());
-    if (!isFinite(conf)) conf = undefined;
-    if (conf > 1) conf = conf / 100;
-
-    // turn '+' node into a D node (in-place)
-    nodesRef.current.update({
-      id: addNodeId,
-      type: "D",
-      label: "D",
-      color: { border: "#166534", background: "#dcfce7" },
-      meta: { diagnosis: { label, confidence: conf } },
-    });
-
-    // then attach/reposition the next '+' for this symptom
-    attachOrRepositionAddDiagnosis(parentSymptomId);
-
-    // keep view tidy
-    networkRef.current?.redraw();
-    networkRef.current?.fit({ animation: { duration: 250, easingFunction: "easeInOutCubic" } });
-  };
-
-  // spawn S-D-T under test; also attach a "+" to the new S
-  const spawnTriangleUnderTest = (testNodeId, { testResultNote = "" } = {}) => {
+  // spawn a new S-D-T “triangle” under a Test node
+  const spawnTriangleUnderTest = (testNodeId, { testResultNote = "", apiData = null } = {}) => {
     const sId = nextId("S");
-    const dId = nextId("D");
-    const tId = nextId("T");
+    
+    const sPos = placeBelow(testNodeId, GAP_Y, 
+    
+    // Create symptom node with updated symptoms (including test result)
+    const allSymptoms = getAllSymptomsFromGraph();
+    const symptomsWithResult = testResultNote ? [...allSymptoms, testResultNote] : allSymptoms;
+    const sNode = makeSymptomNode(sId, sPos.x, sPos.y, symptomsWithResult);
+    
+    const nodesArray = [sNode];
+    const edgesArray = [
+      { id: `${testNodeId}->${sId}`, from: testNodeId, to: sId, color: "#525252" }
+    ];
 
-    const sPos = placeBelow(testNodeId, GAP_Y, 0);
-    const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
-    const tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+    // Use API data if available, otherwise fallback to demo data
+    if (apiData && apiData.diseases && apiData.tests) {
+      console.log("Using API data for new triangle:", apiData);
+      
+      // Create disease nodes dynamically with proper spacing
+      const diseases = apiData.diseases || [];
+      diseases.forEach((disease, index) => {
+        const dId = nextId("D");
+        
+        // Better positioning for diseases on the left side
+        let dPos;
+        if (diseases.length === 1) {
+          dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
+        } else {
+          const spacing = 120; // Vertical spacing between disease nodes
+          const startY = sPos.y + GAP_Y - (diseases.length - 1) * spacing / 2;
+          dPos = { x: sPos.x - GAP_X / 1.3, y: startY + (index * spacing) };
+        }
+        
+        const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: disease, confidence: 0.72 });
+        nodesArray.push(dNode);
+        edgesArray.push({ id: `${sId}->${dId}`, from: sId, to: dId });
+      });
 
-    const sNode = makeSymptomNode(sId, sPos.x, sPos.y, ["new symptom A", "new symptom B"]);
-    const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: "New Dx", confidence: 0.42 });
-    const tNode = makeTestNode(tId, tPos.x, tPos.y, { name: "Next Test", notes: testResultNote });
+      // Create test nodes dynamically with proper spacing
+      const tests = apiData.tests || [];
+      tests.forEach((test, index) => {
+        const tId = nextId("T");
+        
+        // Better positioning for tests on the right side
+        let tPos;
+        if (tests.length === 1) {
+          tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+        } else {
+          const spacing = 120; // Vertical spacing between test nodes
+          const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
+          tPos = { x: sPos.x + GAP_X / 1.3, y: startY + (index * spacing) };
+        }
+        
+        const tNode = makeTestNode(tId, tPos.x, tPos.y, { 
+          name: test.test_name, 
+          notes: test.test_description,
+          cost: test.cost_weight 
+        });
+        nodesArray.push(tNode);
+        edgesArray.push({ id: `${sId}->${tId}`, from: sId, to: tId });
+      });
+    } else {
+      // Fallback to demo data
+      console.log("Using fallback demo data");
+      const dId = nextId("D");
+      const tId = nextId("T");
+      
+      const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
+      const tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
 
-    nodesRef.current.add([sNode, dNode, tNode]);
-    edgesRef.current.add([
-      { id: `${testNodeId}->${sId}`, from: testNodeId, to: sId},
-      { id: `${sId}->${dId}`, from: sId, to: dId},
-      { id: `${sId}->${tId}`, from: sId, to: tId},
-    ]);
+      const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: "New Dx", confidence: 0.42 });
+      const tNode = makeTestNode(tId, tPos.x, tPos.y, { name: "Next Test", notes: testResultNote });
 
+      nodesArray.push(dNode, tNode);
+      edgesArray.push(
+        { id: `${sId}->${dId}`, from: sId, to: dId },
+        { id: `${sId}->${tId}`, from: sId, to: tId }
+      );
+    }
+
+    nodesRef.current.add(nodesArray);
+    edgesRef.current.add(edgesArray);
     // attach the '+' to the new symptom
     ensurePlusForAllSymptoms();
 
@@ -246,20 +269,78 @@ export default function DiagnosticMapPage() {
   };
 
   useEffect(() => {
-    // initial triangle
-    const S1 = `S-${idCounters.current.S}`;
-    const D1 = `D-${idCounters.current.D}`;
-    const T1 = `T-${idCounters.current.T}`;
+    // Get API data
+    const apiData = getApiData();
+    console.log("Graph page received data:", apiData);
 
-    const nodes = new DataSet([
-      makeSymptomNode(S1, 0, 0, ["fever", "cough"]),
-      makeDiagnosisNode(D1, -120, 140, { label: "Influenza", confidence: 0.72 }),
-      makeTestNode(T1, 120, 140, { name: "Rapid antigen", notes: "Nasal swab ~15m" }),
-    ]);
-    const edges = new DataSet([
-      { id: `${S1}->${D1}`, from: S1, to: D1},
-      { id: `${S1}->${T1}`, from: S1, to: T1},
-    ]);
+    // Create symptom node
+    const S1 = `S-${idCounters.current.S}`;
+    const symptoms = apiData.allSymptoms || [];
+    
+    const nodesArray = [makeSymptomNode(S1, 0, 0, symptoms)];
+    const edgesArray = [];
+
+    // Create disease nodes dynamically
+    const diseases = apiData.diseases || [];
+    const diseaseNodes = diseases.length > 0 ? diseases.map((disease, index) => {
+      const diseaseId = `D-${idCounters.current.D + index}`;
+      
+      // Position diseases on the left side, spread vertically
+      let x, y;
+      if (diseases.length === 1) {
+        x = -150;
+        y = 120;
+      } else {
+        const spacing = 120; // vertical spacing between nodes
+        const startY = -(diseases.length - 1) * spacing / 2;
+        x = -150;
+        y = startY + (index * spacing);
+      }
+      
+      // Create edge from symptom to disease
+      edgesArray.push({ id: `${S1}->${diseaseId}`, from: S1, to: diseaseId });
+      
+      return makeDiagnosisNode(diseaseId, x, y, { label: disease, confidence: 0.72 });
+    }) : [];
+
+    // Create test nodes dynamically  
+    const tests = apiData.tests || [];
+    const testNodes = tests.length > 0 ? tests.map((test, index) => {
+      const testId = `T-${idCounters.current.T + index}`;
+      
+      // Position tests on the right side, spread vertically
+      let x, y;
+      if (tests.length === 1) {
+        x = 150;
+        y = 120;
+      } else {
+        const spacing = 120; // vertical spacing between nodes
+        const startY = -(tests.length - 1) * spacing / 2;
+        x = 150;
+        y = startY + (index * spacing);
+      }
+      
+      // Create edge from symptom to test
+      edgesArray.push({ id: `${S1}->${testId}`, from: S1, to: testId });
+      
+      return makeTestNode(testId, x, y, { 
+        name: test.test_name, 
+        notes: test.test_description,
+        cost: test.cost_weight 
+      });
+    }) : [];
+
+    // Update counters for future nodes
+    idCounters.current.D += diseases.length;
+    idCounters.current.T += tests.length;
+    idCounters.current.S += 1;
+
+    // Combine all nodes
+    nodesArray.push(...diseaseNodes, ...testNodes);
+
+    const nodes = new DataSet(nodesArray);
+    const edges = new DataSet(edgesArray);
+
 
     nodesRef.current = nodes;
     edgesRef.current = edges;
@@ -331,10 +412,51 @@ export default function DiagnosticMapPage() {
     };
   }, []);
 
-  // Submit doctor input → spawn new triangle
-  const handleCompleteTest = () => {
+  // Helper function to collect all symptoms from symptom nodes in the graph
+  const getAllSymptomsFromGraph = () => {
+    const allSymptoms = [];
+    if (!nodesRef.current) return allSymptoms;
+    
+    const nodes = nodesRef.current.get();
+    nodes.forEach(node => {
+      if (node.type === "S" && node.meta && node.meta.symptoms) {
+        allSymptoms.push(...node.meta.symptoms);
+      }
+    });
+    
+    return [...new Set(allSymptoms)]; // Remove duplicates
+  };
+
+  // Submit doctor input → call API → spawn new triangle with real data
+  const handleCompleteTest = async () => {
     if (!testDialog.nodeId) return;
-    spawnTriangleUnderTest(testDialog.nodeId, { testResultNote: testDialog.doctorInput.trim() });
+    
+    try {
+      // Collect all symptoms from the graph
+      const allSymptoms = getAllSymptomsFromGraph();
+      
+      // Add the test result as a "symptom" (or we could structure this differently)
+      const testResult = testDialog.doctorInput.trim();
+      const symptomsWithTestResult = testResult ? [...allSymptoms, testResult] : allSymptoms;
+      
+      console.log("Calling API with symptoms:", symptomsWithTestResult);
+      
+      // Call Flask API with updated symptoms
+      const apiResponse = await fetchDiagnosis(symptomsWithTestResult);
+      console.log("API response for completed test:", apiResponse);
+      
+      // Spawn triangle with real API data
+      spawnTriangleUnderTest(testDialog.nodeId, { 
+        testResultNote: testResult,
+        apiData: apiResponse 
+      });
+      
+    } catch (error) {
+      console.error("Error calling API for completed test:", error);
+      // Fallback to original behavior if API fails
+      spawnTriangleUnderTest(testDialog.nodeId, { testResultNote: testDialog.doctorInput.trim() });
+    }
+    
     setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" });
   };
 
