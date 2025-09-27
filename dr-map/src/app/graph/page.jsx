@@ -78,25 +78,6 @@ function makeTestNode(id, x, y, test = { name: "Test", notes: "" }) {
     meta: { test },
   };
 }
-function makeAddDiagnosisNode(id, x, y, parentSymptomId) {
-  return {
-    id,
-    type: "AD",
-    label: "+",
-    shape: "circle",
-    x, y,
-    color: { border: "#334155", background: "#e2e8f0" },
-
-    widthConstraint: 64,                 
-    heightConstraint: { minimum: 64, valign: "middle" }, 
-    margin: 10, 
-    font: { size: 30, vadjust: 0 },      
-
-    labelHighlightBold: false,
-    chosen: { label: false },
-    meta: { parentSymptomId },
-  };
-}
 
 export default function DiagnosticMapPage() {
   const searchParams = useSearchParams();
@@ -105,7 +86,7 @@ export default function DiagnosticMapPage() {
   const networkRef = useRef(null);
   const nodesRef = useRef(null);
   const edgesRef = useRef(null);
-  const idCounters = useRef({ S: 1, D: 1, T: 1, AD: 0 });
+  const idCounters = useRef({ S: 1, D: 1, T: 1 });
 
   // Parse API data from URL parameters
   const getApiData = () => {
@@ -146,43 +127,74 @@ export default function DiagnosticMapPage() {
     doctorInput: "",
   });
 
-  // Add-diagnosis dialog
-  const [diagDialog, setDiagDialog] = useState({
-    open: false,
-    addNodeId: null,          // the "+" node we're converting
-    parentSymptomId: null,    // S node id
-    label: "",
-    confidence: "",           // optional, 0–100 or 0–1
-  });
-
   // simple id helper
   const nextId = (type) => {
-    const map = idCounters.current;
-    const curr = Number.isFinite(map[type]) ? map[type] : 0;
-    const next = curr + 1;
-    map[type] = next;
-    return `${type}-${next}`;
+    idCounters.current[type] += 1;
+    return `${type}-${idCounters.current[type]}`;
   };
-
-  const ensurePlusForAllSymptoms = () => {
-    const allS = nodesRef.current?.get({ filter: (n) => n.type === "S" }) ?? [];
-    allS.forEach((n) => attachOrRepositionAddDiagnosis(n.id));
-    };
 
   // layout helpers (relative placement)
   const GAP_Y = 140;
   const GAP_X = 140;
+  const NODE_SPACING = 150; // Minimum spacing between nodes to prevent overlap
+  
+  // Helper function to check if a position is too close to existing nodes
+  const isPositionSafe = (x, y, minDistance = NODE_SPACING) => {
+    if (!nodesRef.current) return true;
+    
+    const nodes = nodesRef.current.get();
+    return !nodes.some(node => {
+      const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
+      return distance < minDistance;
+    });
+  };
+  
+  // Helper function to find safe position for a node
+  const findSafePosition = (baseX, baseY, side = 'right') => {
+    let x = baseX;
+    let y = baseY;
+    let attempts = 0;
+    const maxAttempts = 15;
+    
+    while (!isPositionSafe(x, y) && attempts < maxAttempts) {
+      if (side === 'left') {
+        x -= NODE_SPACING * 0.4;
+        y += NODE_SPACING * 0.3;
+      } else if (side === 'right') {
+        x += NODE_SPACING * 0.4;
+        y += NODE_SPACING * 0.3;
+      } else if (side === 'center') {
+        // For symptom nodes, try different positions in a spiral pattern
+        const angle = (attempts * Math.PI) / 4; // 45-degree increments
+        const radius = NODE_SPACING * (0.5 + attempts * 0.3);
+        x = baseX + Math.cos(angle) * radius;
+        y = baseY + Math.sin(angle) * radius;
+      }
+      attempts++;
+    }
+    
+    return { x, y };
+  };
+  
   const placeBelow = (parentId, dy = GAP_Y, dx = 0) => {
     const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
-    return { x: pos.x + dx, y: pos.y + dy };
+    const baseX = pos.x - dx;
+    const baseY = pos.y - dy;
+    
+    // Check if the position is safe, if not find a safe alternative
+    if (isPositionSafe(baseX, baseY)) {
+      return { x: baseX, y: baseY };
+    } else {
+      // Find a safe position nearby
+      return findSafePosition(baseX, baseY, 'center');
+    }
   };
-
 
   // spawn a new S-D-T “triangle” under a Test node
   const spawnTriangleUnderTest = (testNodeId, { testResultNote = "", apiData = null } = {}) => {
     const sId = nextId("S");
     
-    const sPos = placeBelow(testNodeId, GAP_Y, 
+    const sPos = placeBelow(testNodeId, GAP_Y, 0);
     
     // Create symptom node with updated symptoms (including test result)
     const allSymptoms = getAllSymptomsFromGraph();
@@ -203,15 +215,20 @@ export default function DiagnosticMapPage() {
       diseases.forEach((disease, index) => {
         const dId = nextId("D");
         
-        // Better positioning for diseases on the left side
-        let dPos;
+        // Calculate base position for diseases on the left side
+        let baseX = sPos.x - GAP_X;
+        let baseY;
+        
         if (diseases.length === 1) {
-          dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
+          baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = 120; // Vertical spacing between disease nodes
+          const spacing = NODE_SPACING; // Use consistent spacing
           const startY = sPos.y + GAP_Y - (diseases.length - 1) * spacing / 2;
-          dPos = { x: sPos.x - GAP_X / 1.3, y: startY + (index * spacing) };
+          baseY = startY + (index * spacing);
         }
+        
+        // Find safe position that doesn't overlap with existing nodes
+        const dPos = findSafePosition(baseX, baseY, 'left');
         
         const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: disease, confidence: 0.72 });
         nodesArray.push(dNode);
@@ -223,15 +240,20 @@ export default function DiagnosticMapPage() {
       tests.forEach((test, index) => {
         const tId = nextId("T");
         
-        // Better positioning for tests on the right side
-        let tPos;
+        // Calculate base position for tests on the right side
+        let baseX = sPos.x + GAP_X;
+        let baseY;
+        
         if (tests.length === 1) {
-          tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+          baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = 120; // Vertical spacing between test nodes
+          const spacing = NODE_SPACING; // Use consistent spacing
           const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
-          tPos = { x: sPos.x + GAP_X / 1.3, y: startY + (index * spacing) };
+          baseY = startY + (index * spacing);
         }
+        
+        // Find safe position that doesn't overlap with existing nodes
+        const tPos = findSafePosition(baseX, baseY, 'right');
         
         const tNode = makeTestNode(tId, tPos.x, tPos.y, { 
           name: test.test_name, 
@@ -262,8 +284,6 @@ export default function DiagnosticMapPage() {
 
     nodesRef.current.add(nodesArray);
     edgesRef.current.add(edgesArray);
-    // attach the '+' to the new symptom
-    ensurePlusForAllSymptoms();
 
     networkRef.current?.fit({ animation: { duration: 300, easingFunction: "easeInOutCubic" } });
   };
@@ -341,7 +361,6 @@ export default function DiagnosticMapPage() {
     const nodes = new DataSet(nodesArray);
     const edges = new DataSet(edgesArray);
 
-
     nodesRef.current = nodes;
     edgesRef.current = edges;
 
@@ -355,9 +374,6 @@ export default function DiagnosticMapPage() {
     const network = new Network(containerRef.current, { nodes, edges }, options);
     networkRef.current = network;
     network.fit({ animation: false });
-
-    // ensure '+' node for every existing Symptom
-    ensurePlusForAllSymptoms();
 
     // HOVER
     network.on("hoverNode", (params) => {
@@ -376,9 +392,11 @@ export default function DiagnosticMapPage() {
         data: node.meta,
       });
     });
-    network.on("blurNode", () => setHover((h) => ({ ...h, open: false })));
+    network.on("blurNode", (params) => {
+      setHover((h) => ({ ...h, open: false }));
+    });
 
-    // CLICK
+    // CLICK (tests open dialog)
     network.on("click", (params) => {
       if (!params.nodes.length) return;
       const id = params.nodes[0];
@@ -392,17 +410,6 @@ export default function DiagnosticMapPage() {
           testName: node.meta?.test?.name ?? "Test",
           doctorInput: "",
         });
-        return;
-      }
-      if (node.type === "AD") {
-        setDiagDialog({
-          open: true,
-          addNodeId: id,
-          parentSymptomId: node.meta?.parentSymptomId,
-          label: "",
-          confidence: "",
-        });
-        return;
       }
     });
 
@@ -460,89 +467,69 @@ export default function DiagnosticMapPage() {
     setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" });
   };
 
-  // Submit add-diagnosis
-  const handleAddDiagnosis = () => {
-    const { addNodeId, parentSymptomId, label, confidence } = diagDialog;
-    if (!addNodeId || !parentSymptomId || !label.trim()) {
-      setDiagDialog((s) => ({ ...s, open: false })); // nothing to do
-      return;
-    }
-    convertPlusToDiagnosis(addNodeId, parentSymptomId, label.trim(), confidence);
-    setDiagDialog({ open: false, addNodeId: null, parentSymptomId: null, label: "", confidence: "" });
-  };
-
   return (
-    <div style={{ padding: 16 }}>
-      {/* Relative wrapper so we can absolutely position overlays */}
-      <div ref={wrapperRef} style={{ position: "relative", height: "95vh" }}>
-        {/* vis-network canvas */}
-        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} aria-label="graph-canvas" />
+    <div>
+        `<div className="px-16 py-8">
+        {/* Relative wrapper so we can absolutely position overlays */}
+        <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
+            {/* vis-network canvas */}
+            <div ref={containerRef} style={{ position: "absolute", inset: 0 }} aria-label="graph-canvas" />
 
-        {/* Hover anchor at node coordinates */}
-        <div style={{ position: "absolute", left: hover.x, top: hover.y, width: 1, height: 1 }}>
-          <HoverCard open={hover.open}>
-            <HoverCardTrigger asChild>
-              <div style={{ width: 1, height: 1 }} />
-            </HoverCardTrigger>
-            <HoverCardContent side="top" align="center" className="w-72">
-              <HoverContent nodeType={hover.nodeType} data={hover.data} />
-            </HoverCardContent>
-          </HoverCard>
+            {/* Hover anchor at node coordinates */}
+            <div
+            style={{
+                position: "absolute",
+                left: hover.x,
+                top: hover.y,
+                width: 1,
+                height: 1,
+            }}
+            >
+            <HoverCard open={hover.open}>
+                <HoverCardTrigger asChild>
+                <div style={{ width: 1, height: 1 }} />
+                </HoverCardTrigger>
+                <HoverCardContent side="top" align="center" className="w-72">
+                <HoverContent nodeType={hover.nodeType} data={hover.data} />
+                </HoverCardContent>
+            </HoverCard>
+            </div>
         </div>
-      </div>
 
-      {/* Test completion dialog */}
-      <Dialog open={testDialog.open} onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Enter doctor notes or the key result (this will annotate the next triangle).
-            </p>
-            <Input
-
-              placeholder="e.g., Positive flu antigen; mild hypoxia"
-              value={testDialog.doctorInput}
-              onChange={(e) => setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
-              Cancel
-            </Button>
-            <Button onClick={handleCompleteTest}>Add Next Triangle</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add-diagnosis dialog */}
-      <Dialog open={diagDialog.open} onOpenChange={(o) => setDiagDialog((s) => ({ ...s, open: o }))}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add your own diagnosis</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="Diagnosis label (e.g., Bacterial pneumonia)"
-              value={diagDialog.label}
-              onChange={(e) => setDiagDialog((s) => ({ ...s, label: e.target.value }))}
-            />
-            <Input
-              placeholder="Confidence (e.g., 0.7 or 70)"
-              value={diagDialog.confidence}
-              onChange={(e) => setDiagDialog((s) => ({ ...s, confidence: e.target.value }))}
-            />
-          </div>
-          <DialogFooter className="pt-2">
-            <Button variant="secondary" onClick={() => setDiagDialog({ open: false, addNodeId: null, parentSymptomId: null, label: "", confidence: "" })}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddDiagnosis}>Add Diagnosis</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Test completion dialog */}
+        <Dialog open={testDialog.open} onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}>
+            <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                Enter doctor notes or the key result (this will annotate the next triangle).
+                </p>
+                <Input
+                placeholder="e.g., Positive flu antigen; mild hypoxia"
+                value={testDialog.doctorInput}
+                onChange={(e) => setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))}
+                />
+            </div>
+            <DialogFooter>
+                <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
+                Cancel
+                </Button>
+                <Button onClick={handleCompleteTest}>Complete Test</Button>
+            </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </div>
+        {/* <div className="w-full h-10 flex justify-between px-4">
+            <div>
+                <Button>Print</Button>
+            </div>
+            <div className="flex justify-end gap-4">
+                <Button>Force Diagnosis</Button>
+                <Button>Complete Tests</Button>
+            </div>  
+        </div> */}
     </div>
   );
 }
@@ -556,7 +543,9 @@ function HoverContent({ nodeType, data }) {
         <div className="font-semibold mb-1">Symptoms</div>
         {symptoms.length ? (
           <ul className="list-disc pl-4 space-y-0.5">
-            {symptoms.map((s, i) => <li key={i}>{s}</li>)}
+            {symptoms.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
           </ul>
         ) : (
           <p className="text-muted-foreground">No symptoms recorded.</p>
@@ -586,14 +575,6 @@ function HoverContent({ nodeType, data }) {
         <p className="font-medium">{t.name}</p>
         {t.notes ? <p className="text-muted-foreground">{t.notes}</p> : null}
         <p className="mt-2 text-xs text-muted-foreground">Click node to complete test.</p>
-      </div>
-    );
-  }
-  if (nodeType === "AD") {
-    return (
-      <div className="text-sm">
-        <div className="font-semibold mb-1">Add your own diagnosis</div>
-        <p className="text-muted-foreground">Click to enter a diagnosis linked to this symptom.</p>
       </div>
     );
   }
