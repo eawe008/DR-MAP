@@ -7,6 +7,12 @@ from ..services.recommender import get_multiple_tests
 bp = Blueprint("diagnosis", __name__, url_prefix="/api")
 
 
+@bp.route("/next-test", methods=["OPTIONS"])
+def next_test_options():
+    """Handle preflight OPTIONS request for CORS."""
+    return "", 200
+
+allSymptoms = []
 @bp.post("/next-test")
 def next_test():
     """Return possible diseases (from first/best test) and two test objects.
@@ -30,6 +36,8 @@ def next_test():
     """
     body = request.get_json(silent=True) or {}
     symptoms: List[str] = body.get("symptoms", [])
+    allSymptoms.extend(symptoms)
+    print("All symptoms so far:", allSymptoms)
     previous_tests: List[Dict] = body.get("previous_tests", [])
     min_cost = body.get("min_cost", 0)
     n = int(body.get("n", 2))
@@ -52,4 +60,4 @@ def next_test():
         }
         for t in tests_full
     ]
-    return jsonify({"diseases": diseases_top, "tests": tests_slim}), 200
+    return jsonify({"allSymptoms": allSymptoms, "diseases": diseases_top, "tests": tests_slim}), 200
