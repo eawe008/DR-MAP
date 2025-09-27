@@ -1,15 +1,9 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:5000";
-
-// Sends a POST with a JSON array body to /receive  (matches your Flask endpoint)
+// src/lib/diagnosisApi.js
 export async function fetchDiagnosis(symptoms) {
-  const res = await fetch(`${API_BASE}/receive`, {
+  const res = await fetch(`/backend/receive`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(symptoms), // e.g., ["fever","cough"]
-    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(symptoms),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
