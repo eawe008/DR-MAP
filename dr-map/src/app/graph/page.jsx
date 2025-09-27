@@ -136,9 +136,58 @@ export default function DiagnosticMapPage() {
   // layout helpers (relative placement)
   const GAP_Y = 140;
   const GAP_X = 140;
+  const NODE_SPACING = 150; // Minimum spacing between nodes to prevent overlap
+  
+  // Helper function to check if a position is too close to existing nodes
+  const isPositionSafe = (x, y, minDistance = NODE_SPACING) => {
+    if (!nodesRef.current) return true;
+    
+    const nodes = nodesRef.current.get();
+    return !nodes.some(node => {
+      const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
+      return distance < minDistance;
+    });
+  };
+  
+  // Helper function to find safe position for a node
+  const findSafePosition = (baseX, baseY, side = 'right') => {
+    let x = baseX;
+    let y = baseY;
+    let attempts = 0;
+    const maxAttempts = 15;
+    
+    while (!isPositionSafe(x, y) && attempts < maxAttempts) {
+      if (side === 'left') {
+        x -= NODE_SPACING * 0.4;
+        y += NODE_SPACING * 0.3;
+      } else if (side === 'right') {
+        x += NODE_SPACING * 0.4;
+        y += NODE_SPACING * 0.3;
+      } else if (side === 'center') {
+        // For symptom nodes, try different positions in a spiral pattern
+        const angle = (attempts * Math.PI) / 4; // 45-degree increments
+        const radius = NODE_SPACING * (0.5 + attempts * 0.3);
+        x = baseX + Math.cos(angle) * radius;
+        y = baseY + Math.sin(angle) * radius;
+      }
+      attempts++;
+    }
+    
+    return { x, y };
+  };
+  
   const placeBelow = (parentId, dy = GAP_Y, dx = 0) => {
     const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
-    return { x: pos.x + dx, y: pos.y + dy };
+    const baseX = pos.x + dx;
+    const baseY = pos.y + dy;
+    
+    // Check if the position is safe, if not find a safe alternative
+    if (isPositionSafe(baseX, baseY)) {
+      return { x: baseX, y: baseY };
+    } else {
+      // Find a safe position nearby
+      return findSafePosition(baseX, baseY, 'center');
+    }
   };
 
   // spawn a new S-D-T “triangle” under a Test node
@@ -166,15 +215,20 @@ export default function DiagnosticMapPage() {
       diseases.forEach((disease, index) => {
         const dId = nextId("D");
         
-        // Better positioning for diseases on the left side
-        let dPos;
+        // Calculate base position for diseases on the left side
+        let baseX = sPos.x - GAP_X;
+        let baseY;
+        
         if (diseases.length === 1) {
-          dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
+          baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = 120; // Vertical spacing between disease nodes
+          const spacing = NODE_SPACING; // Use consistent spacing
           const startY = sPos.y + GAP_Y - (diseases.length - 1) * spacing / 2;
-          dPos = { x: sPos.x - GAP_X / 1.3, y: startY + (index * spacing) };
+          baseY = startY + (index * spacing);
         }
+        
+        // Find safe position that doesn't overlap with existing nodes
+        const dPos = findSafePosition(baseX, baseY, 'left');
         
         const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: disease, confidence: 0.72 });
         nodesArray.push(dNode);
@@ -186,15 +240,20 @@ export default function DiagnosticMapPage() {
       tests.forEach((test, index) => {
         const tId = nextId("T");
         
-        // Better positioning for tests on the right side
-        let tPos;
+        // Calculate base position for tests on the right side
+        let baseX = sPos.x + GAP_X;
+        let baseY;
+        
         if (tests.length === 1) {
-          tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+          baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = 120; // Vertical spacing between test nodes
+          const spacing = NODE_SPACING; // Use consistent spacing
           const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
-          tPos = { x: sPos.x + GAP_X / 1.3, y: startY + (index * spacing) };
+          baseY = startY + (index * spacing);
         }
+        
+        // Find safe position that doesn't overlap with existing nodes
+        const tPos = findSafePosition(baseX, baseY, 'right');
         
         const tNode = makeTestNode(tId, tPos.x, tPos.y, { 
           name: test.test_name, 
