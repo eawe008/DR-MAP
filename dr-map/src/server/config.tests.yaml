@@ -1,0 +1,38 @@
+cost_scale: [5, 10, 15, 30, 50, 150]
+
+tests:
+  - id: temp
+    name: Temperature check
+    description: Use a thermometer to measure body temperature.
+    cost_weight: 5
+    tags: [fever, infection, screening]
+
+  - id: spo2
+    name: Pulse oximetry
+    description: Fingertip device to check oxygen saturation.
+    cost_weight: 10
+    tags: [shortness of breath, chest pain, screening]
+
+  - id: rat_flu
+    name: Rapid antigen test for influenza
+    description: Detects influenza virus antigens in nasal swab.
+    cost_weight: 15
+    tags: [fever, cough, influenza, viral]
+
+  - id: cxr
+    name: Chest X-ray
+    description: Imaging to check for pneumonia, TB, or fluid.
+    cost_weight: 30
+    tags: [cough, chest pain, pneumonia]
+
+  - id: ecg
+    name: Electrocardiogram (ECG)
+    description: Records heart electrical activity for arrhythmia/ischemia.
+    cost_weight: 30
+    tags: [chest pain, heart pain, palpitations, cardiac]
+
+  - id: pcr_panel
+    name: PCR respiratory panel
+    description: Detects viral/bacterial infections using PCR.
+    cost_weight: 150
+    tags: [viral, bacterial, confirmatory]
