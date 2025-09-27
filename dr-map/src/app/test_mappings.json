@@ -1,0 +1,5 @@
+{
+    "abdominal pain" : ["Abdominal ultrasound", "CT abdomen", "Endoscopy"],
+    "fever" : ["CBC", "Blood culture", "Urinalysis"],
+    "cough" : ["Chest X-ray", "Sputum culture", "Pulmonary function test"]
+}
