@@ -2,7 +2,7 @@
 
 export default function ArticleCard({ article }) {
   return (
-    <div className="border rounded-md p-4 w-80 flex flex-col justify-between shadow-md">
+    <div className="border rounded-md w-80 flex flex-col justify-between shadow-md">
       <h3 className="font-bold text-lg mb-2">{article.title}</h3>
       <p className="text-sm mb-2">{article.abstract || "No abstract available."}</p>
       {article.doi && (
