@@ -12,8 +12,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Dr Map",
-  description: "Dr Map App",
+  title: "MediVyne",
+  description: "MediVyne App",
 };
 
 export default function RootLayout({ children }) {
