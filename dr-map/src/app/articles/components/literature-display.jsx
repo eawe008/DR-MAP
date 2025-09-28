@@ -17,6 +17,10 @@ export default function LiteratureDisplay({ keywords }) {
       .catch((err) => console.error("Error fetching articles:", err));
   }, [keywords]);
 
+  if (articles.length === 0) {
+      return <p>No results matching symptoms and diagnosis found.</p>
+  }
+
   return (
     <div className="flex gap-4 justify-center flex-wrap">
       {articles.map((article, index) => (
