@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ButtonLoading } from "@/components/ui/simple_load";
 import LegendKey from "@/components/LegendKey";
 
 /* ---------- tiny “factories” for node types ---------- */
@@ -90,11 +91,10 @@ function makeTestNode(id, x, y, test = { name: "Test", notes: "" }) {
 function makeAggregatorNode(id, x, y, pending = []) {
   return {
     id,
-    type: "P", // Pending aggregator
+    type: "P",                    // Pending aggregator
     label: "+",
     shape: "circle",
-    x,
-    y,
+    x, y,
     color: { border: "#166534", background: "#dcfce7" }, // green hint
     widthConstraint: 64,
     heightConstraint: { minimum: 64, valign: "middle" },
@@ -102,7 +102,7 @@ function makeAggregatorNode(id, x, y, pending = []) {
     font: { size: 30, vadjust: 0 },
     labelHighlightBold: false,
     chosen: { label: false },
-    meta: { pending }, // array of { testId, note }
+    meta: { pending },           // array of { testId, note }
   };
 }
 
@@ -164,6 +164,12 @@ export default function DiagnosticMapPage() {
     testName: "",
     doctorInput: "",
   });
+
+
+  // Loading state for aggregator "+" button clicks
+  const [isLoadingAggregator, setIsLoadingAggregator] = useState(false);
+  const [loadingNodePosition, setLoadingNodePosition] = useState({ x: 0, y: 0 });
+  const isLoadingRef = useRef(false);
 
   const [forceOpen, setForceOpen] = useState(false);
   const [forceDxText, setForceDxText] = useState("");
@@ -237,19 +243,20 @@ export default function DiagnosticMapPage() {
     // ---- NEW PLACEMENT LOGIC (bottom-left of tests) ----
     const tests = getTestsForSymptom(symptomId);
     // offsets: tune these to taste (px). Positive Y goes downward in vis-network.
-    const OFFSET_X = 60; // how far left from the leftmost test
-    const OFFSET_Y = 60; // how far below the lowest test
+    const OFFSET_X = 60;   // how far left from the leftmost test
+    const OFFSET_Y = 60;   // how far below the lowest test
+
 
     let baseX, baseY;
 
     if (tests.length > 0) {
-      const xs = tests.map((t) => t.pos.x);
-      const ys = tests.map((t) => t.pos.y);
+      const xs = tests.map(t => t.pos.x);
+      const ys = tests.map(t => t.pos.y);
       const minX = Math.min(...xs);
       const maxY = Math.max(...ys);
 
-      baseX = minX - OFFSET_X; // left of the leftmost test
-      baseY = maxY + OFFSET_Y; // below the lowest test
+      baseX = minX - OFFSET_X;   // left of the leftmost test
+      baseY = maxY + OFFSET_Y;   // below the lowest test
     } else {
       // Fallback if no tests found (should be rare)
       const fallback = placeBelow(symptomId, GAP_Y, 0);
@@ -265,27 +272,25 @@ export default function DiagnosticMapPage() {
     nodesRef.current.add(aggNode);
     pendingByAggRef.current.set(aggId, { symptomId, tests: new Map() });
 
-    networkRef.current?.fit({
-      animation: { duration: 250, easingFunction: "easeInOutCubic" },
-    });
+    networkRef.current?.fit({ animation: { duration: 250, easingFunction: "easeInOutCubic" } });
     return aggId;
   };
-
+  
   // Helper function to find safe position for a node
-  const findSafePosition = (baseX, baseY, side = "right") => {
+  const findSafePosition = (baseX, baseY, side = 'right') => {
     let x = baseX;
     let y = baseY;
     let attempts = 0;
     const maxAttempts = 15;
-
+    
     while (!isPositionSafe(x, y) && attempts < maxAttempts) {
-      if (side === "left") {
+      if (side === 'left') {
         x -= NODE_SPACING * 0.4;
         y += NODE_SPACING * 0.3;
-      } else if (side === "right") {
+      } else if (side === 'right') {
         x += NODE_SPACING * 0.4;
         y += NODE_SPACING * 0.3;
-      } else if (side === "center") {
+      } else if (side === 'center') {
         // For symptom nodes, try different positions in a spiral pattern
         const angle = (attempts * Math.PI) / 4; // 45-degree increments
         const radius = NODE_SPACING * (0.5 + attempts * 0.3);
@@ -294,26 +299,24 @@ export default function DiagnosticMapPage() {
       }
       attempts++;
     }
-
+    
     return { x, y };
   };
-
+  
   const placeBelow = (parentId, dy = GAP_Y, dx = 0) => {
-    const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? {
-      x: 0,
-      y: 0,
-    };
+    const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
     const baseX = pos.x - dx;
     const baseY = pos.y - dy;
-
+    
     // Check if the position is safe, if not find a safe alternative
     if (isPositionSafe(baseX, baseY)) {
       return { x: baseX, y: baseY };
     } else {
       // Find a safe position nearby
-      return findSafePosition(baseX, baseY, "center");
+      return findSafePosition(baseX, baseY, 'center');
     }
   };
+
 
   // spawn a new S-D-T “triangle” under a Test node
   const spawnTriangleUnderTest = (
@@ -358,17 +361,16 @@ export default function DiagnosticMapPage() {
           baseY = sPos.y + GAP_Y;
         } else {
           const spacing = NODE_SPACING; // Use consistent spacing
-          const startY = sPos.y + GAP_Y - ((diseases.length - 1) * spacing) / 2;
-          baseY = startY + index * spacing;
+
+          const startY = sPos.y + GAP_Y - (diseases.length - 1) * spacing / 2;
+          baseY = startY + (index * spacing);
         }
-
+        
         // Find safe position that doesn't overlap with existing nodes
-        const dPos = findSafePosition(baseX, baseY, "left");
+        const dPos = findSafePosition(baseX, baseY, 'left');
+        
+        const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: disease, confidence: 0 });
 
-        const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, {
-          label: disease,
-          confidence: 0.72,
-        });
         nodesArray.push(dNode);
         edgesArray.push({ id: `${sId}->${dId}`, from: sId, to: dId });
       });
@@ -377,24 +379,24 @@ export default function DiagnosticMapPage() {
       const tests = apiData.tests || [];
       tests.forEach((test, index) => {
         const tId = nextId("T");
-
+        
         // Calculate base position for tests on the right side
         let baseX = sPos.x + GAP_X;
         let baseY;
-
+        
         if (tests.length === 1) {
           baseY = sPos.y + GAP_Y;
         } else {
           const spacing = NODE_SPACING; // Use consistent spacing
-          const startY = sPos.y + GAP_Y - ((tests.length - 1) * spacing) / 2;
-          baseY = startY + index * spacing;
+          const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
+          baseY = startY + (index * spacing);
         }
-
+        
         // Find safe position that doesn't overlap with existing nodes
-        const tPos = findSafePosition(baseX, baseY, "right");
-
-        const tNode = makeTestNode(tId, tPos.x, tPos.y, {
-          name: test.test_name,
+        const tPos = findSafePosition(baseX, baseY, 'right');
+        
+        const tNode = makeTestNode(tId, tPos.x, tPos.y, { 
+          name: test.test_name, 
           notes: test.test_description,
           cost: test.cost_weight,
         });
@@ -540,6 +542,9 @@ export default function DiagnosticMapPage() {
 
     // HOVER
     network.on("hoverNode", (params) => {
+      // Don't show tooltips during loading
+      if (isLoadingRef.current) return;
+      
       const nodeId = params.node;
       const node = nodesRef.current.get(nodeId);
       if (!node) return;
@@ -581,6 +586,22 @@ export default function DiagnosticMapPage() {
         const aggMeta = pendingByAggRef.current.get(aggId);
         if (!aggMeta) return;
 
+        // Close any existing tooltip immediately
+        setHover((h) => ({ ...h, open: false }));
+
+        // Show loading overlay on top of the clicked "+" button
+        const nodePosition = network.getPositions([aggId])[aggId];
+        if (nodePosition && containerRef.current) {
+          const canvasPos = network.canvasToDOM(nodePosition);
+          const containerRect = containerRef.current.getBoundingClientRect();
+          setLoadingNodePosition({
+            x: containerRect.left + canvasPos.x,
+            y: containerRect.top + canvasPos.y,
+          });
+          setIsLoadingAggregator(true);
+          isLoadingRef.current = true;
+        }
+
         // Gather all symptoms from the parent symptom + add all collected notes
         const parentSymptomId = aggMeta.symptomId;
         const baseSymptoms = getAllSymptomsFromGraph(); // includes from every S in graph; OK for now
@@ -604,6 +625,11 @@ export default function DiagnosticMapPage() {
         } catch (err) {
           console.error("API failed; falling back to demo branch", err);
           buildBranchesUnderSymptom(aggId, null); // fallback
+        } finally {
+          // Hide loading overlay
+          setIsLoadingAggregator(false);
+          isLoadingRef.current = false;
+
         }
 
         // Clean up our pending bookkeeping
@@ -690,6 +716,7 @@ export default function DiagnosticMapPage() {
     const aggNode = nodesRef.current.get(aggId);
     nodesRef.current.update({
       id: aggId,
+
       meta: {
         pending: Array.from(aggMeta.tests, ([tid, n]) => ({
           testId: tid,
@@ -702,6 +729,7 @@ export default function DiagnosticMapPage() {
   };
 
   const buildBranchesUnderSymptom = (symptomId, apiData) => {
+
     const sPos = networkRef.current?.getPositions([symptomId])?.[symptomId] ?? {
       x: 0,
       y: 0,
@@ -720,6 +748,7 @@ export default function DiagnosticMapPage() {
           baseY = sPos.y + GAP_Y;
         } else {
           const spacing = NODE_SPACING;
+
           const startY = sPos.y + GAP_Y - ((diseases.length - 1) * spacing) / 2;
           baseY = startY + index * spacing;
         }
@@ -745,8 +774,9 @@ export default function DiagnosticMapPage() {
           baseY = sPos.y + GAP_Y;
         } else {
           const spacing = NODE_SPACING;
-          const startY = sPos.y + GAP_Y - ((tests.length - 1) * spacing) / 2;
-          baseY = startY + index * spacing;
+          const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
+          baseY = startY + (index * spacing);
+
         }
         const tPos = findSafePosition(baseX, baseY, "right");
         const tNode = makeTestNode(tId, tPos.x, tPos.y, {
@@ -767,6 +797,7 @@ export default function DiagnosticMapPage() {
       const tId = nextId("T");
       const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
       const tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+
       const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, {
         label: "New Dx",
         confidence: 0.42,
@@ -801,138 +832,249 @@ export default function DiagnosticMapPage() {
   };
 
   return (
-    <div className="flex h-screen">
-      {/* LEFT: shadcn legend */}
-      <aside className="w-72 shrink-0 border-r bg-background p-4 overflow-y-auto">
-        <LegendKey />
-      </aside>
-
-      {/* RIGHT: graph + dialogs + FAB */}
-      <div className="flex-1 px-16 py-8 relative">
-        {/* Graph wrapper */}
+    <div>
+        `<div className="px-16 py-8">
+        {/* Relative wrapper so we can absolutely position overlays */}
         <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
-          <div
-            ref={containerRef}
-            style={{ position: "absolute", inset: 0 }}
-            aria-label="graph-canvas"
-          />
+            {/* vis-network canvas */}
+            <div ref={containerRef} style={{ position: "absolute", inset: 0 }} aria-label="graph-canvas" />
 
-          {/* Hover anchor */}
-          <div
+            {/* Hover anchor at node coordinates */}
+            <div
             style={{
-              position: "absolute",
-              left: hover.x,
-              top: hover.y,
-              width: 1,
-              height: 1,
+                position: "absolute",
+                left: hover.x,
+                top: hover.y,
+                width: 1,
+                height: 1,
             }}
-          >
+            >
             <HoverCard open={hover.open}>
-              <HoverCardTrigger asChild>
+                <HoverCardTrigger asChild>
                 <div style={{ width: 1, height: 1 }} />
-              </HoverCardTrigger>
-              <HoverCardContent side="top" align="center" className="w-72">
+                </HoverCardTrigger>
+                <HoverCardContent side="top" align="center" className="w-72">
                 <HoverContent nodeType={hover.nodeType} data={hover.data} />
-              </HoverCardContent>
+                </HoverCardContent>
             </HoverCard>
-          </div>
-        </div>
+            </div>
 
-        {/* Force Diagnose (FAB) */}
-        <div className="fixed bottom-6 right-6 z-50">
-          <Button
-            onClick={openForceDialog}
-            className="rounded-full px-5 py-3 shadow-lg"
-          >
-            Force Diagnose
-          </Button>
+            {/* Loading overlay positioned on top of clicked "+" button */}
+            {isLoadingAggregator && loadingNodePosition && (
+                <div
+                    style={{
+                        position: "fixed",
+                        left: loadingNodePosition.x,
+                        top: loadingNodePosition.y,
+                        transform: "translate(-50%, -50%)",
+                        zIndex: 1000,
+                        pointerEvents: "none",
+                        backgroundColor: "white",
+                        borderRadius: "5%",
+                        padding: "20px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                    }}
+                >
+                    <div style={{borderRadius: "6px" }}>
+                        <ButtonLoading />
+                    </div>
+                </div>
+            )}
         </div>
 
         {/* Test completion dialog */}
-        <Dialog
-          open={testDialog.open}
-          onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}
-        >
-          <DialogContent>
+        <Dialog open={testDialog.open} onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}>
+            <DialogContent>
             <DialogHeader>
-              <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
+                <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
             </DialogHeader>
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Enter doctor notes or the key result (this will annotate the
-                next triangle).
-              </p>
-              <Input
+                <p className="text-sm text-muted-foreground">
+                Enter doctor notes or the key result (this will annotate the next triangle).
+                </p>
+                <Input
                 placeholder="e.g., Positive flu antigen; mild hypoxia"
                 value={testDialog.doctorInput}
-                onChange={(e) =>
-                  setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))
-                }
-              />
+                onChange={(e) => setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))}
+                />
             </div>
             <DialogFooter>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  setTestDialog({
-                    open: false,
-                    nodeId: null,
-                    testName: "",
-                    doctorInput: "",
-                  })
-                }
-              >
+                <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
                 Cancel
-              </Button>
-              <Button onClick={handleCompleteTest}>Complete Test</Button>
+                </Button>
+                <Button onClick={handleCompleteTest}>Complete Test</Button>
             </DialogFooter>
-          </DialogContent>
+            </DialogContent>
         </Dialog>
-        <Dialog
-          open={forceDialog.open}
-          onOpenChange={(o) => setForceDialog((s) => ({ ...s, open: o }))}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Force a diagnosis?</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                This will stop the flow and take you to the Articles page for
-                more information. Please enter the diagnosis you want to
-                continue with.
-              </p>
+        </div>
+        {/* <div className="w-full h-10 flex justify-between px-4">
+            <div>
+                <Button>Print</Button>
+            </div>
+            <div className="flex justify-end gap-4">
+                <Button>Force Diagnosis</Button>
+                <Button>Complete Tests</Button>
+            </div>  
+        </div> */}
+<div className="flex h-screen">
+  {/* LEFT: shadcn legend */}
+  <aside className="w-72 shrink-0 border-r bg-background p-4 overflow-y-auto">
+    <LegendKey />
+  </aside>
 
-              <Input
-                placeholder="e.g., Influenza A"
-                value={forceDialog.text}
-                onChange={(e) =>
-                  setForceDialog((s) => ({ ...s, text: e.target.value }))
-                }
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="secondary"
-                onClick={() => setForceDialog({ open: false, text: "" })}
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={!forceDialog.text.trim()}
-                onClick={() => {
-                  setForceDialog({ open: false, text: "" });
-                  router.push(
-                    `/articles?dx=${encodeURIComponent(forceDialog.text)}`
-                  );
-                }}
-              >
-                Continue to Articles
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+  {/* RIGHT: graph + dialogs + FAB */}
+  <div className="flex-1 px-16 py-8 relative">
+    {/* Graph wrapper */}
+    <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
+      {/* vis-network canvas */}
+      <div
+        ref={containerRef}
+        style={{ position: "absolute", inset: 0 }}
+        aria-label="graph-canvas"
+      />
+
+      {/* Hover anchor at node coordinates */}
+      <div
+        style={{
+          position: "absolute",
+          left: hover.x,
+          top: hover.y,
+          width: 1,
+          height: 1,
+        }}
+      >
+        <HoverCard open={hover.open}>
+          <HoverCardTrigger asChild>
+            <div style={{ width: 1, height: 1 }} />
+          </HoverCardTrigger>
+          <HoverCardContent side="top" align="center" className="w-72">
+            <HoverContent nodeType={hover.nodeType} data={hover.data} />
+          </HoverCardContent>
+        </HoverCard>
       </div>
+
+      {/* Loading overlay positioned on top of clicked "+" button */}
+      {isLoadingAggregator && loadingNodePosition && (
+        <div
+          style={{
+            position: "fixed",
+            left: loadingNodePosition.x,
+            top: loadingNodePosition.y,
+            transform: "translate(-50%, -50%)",
+            zIndex: 1000,
+            pointerEvents: "none",
+            backgroundColor: "white",
+            borderRadius: "5%",
+            padding: "20px",
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+          }}
+        >
+          <div style={{ borderRadius: "6px" }}>
+            <ButtonLoading />
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Force Diagnose (FAB) */}
+    <div className="fixed bottom-6 right-6 z-50">
+      <Button
+        onClick={openForceDialog}
+        className="rounded-full px-5 py-3 shadow-lg"
+      >
+        Force Diagnose
+      </Button>
+    </div>
+
+    {/* Test completion dialog */}
+    <Dialog
+      open={testDialog.open}
+      onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Enter doctor notes or the key result (this will annotate the next
+            triangle).
+          </p>
+          <Input
+            placeholder="e.g., Positive flu antigen; mild hypoxia"
+            value={testDialog.doctorInput}
+            onChange={(e) =>
+              setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))
+            }
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              setTestDialog({
+                open: false,
+                nodeId: null,
+                testName: "",
+                doctorInput: "",
+              })
+            }
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleCompleteTest}>Complete Test</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Force Diagnose dialog */}
+    <Dialog
+      open={forceDialog.open}
+      onOpenChange={(o) => setForceDialog((s) => ({ ...s, open: o }))}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Force a diagnosis?</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            This will stop the flow and take you to the Articles page for more
+            information. Please enter the diagnosis you want to continue with.
+          </p>
+          <Input
+            placeholder="e.g., Influenza A"
+            value={forceDialog.text}
+            onChange={(e) =>
+              setForceDialog((s) => ({ ...s, text: e.target.value }))
+            }
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setForceDialog({ open: false, text: "" })}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!forceDialog.text.trim()}
+            onClick={() => {
+              setForceDialog({ open: false, text: "" });
+              // NOTE: if your Articles page expects `data=` JSON, swap this for the JSON version:
+              // const payload = { diagnosis: forceDialog.text.trim(), symptoms: getAllSymptomsFromGraph() };
+              // router.push(`/articles?data=${encodeURIComponent(JSON.stringify(payload))}`);
+              router.push(
+                `/articles?dx=${encodeURIComponent(forceDialog.text)}`
+              );
+            }}
+          >
+            Continue to Articles
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </div>
+</div>
     </div>
   );
 }
@@ -1003,12 +1145,12 @@ function HoverContent({ nodeType, data }) {
         <div className="font-semibold mb-1">Test</div>
         <p className="font-medium">{t.name}</p>
         {t.notes ? <p className="text-muted-foreground">{t.notes}</p> : null}
+
         <p className="mt-2 text-xs text-muted-foreground">
           Click node to complete test.
         </p>
       </div>
     );
   }
-
   return <div className="text-sm text-muted-foreground">Node</div>;
 }
