@@ -1,6 +1,6 @@
-import { Loader2Icon } from "lucide-react"
+import { Loader2Icon } from "lucide-react";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 
 export function ButtonLoading() {
   return (
@@ -8,5 +8,5 @@ export function ButtonLoading() {
       <Loader2Icon className="animate-spin" />
       Please wait
     </Button>
-  )
+  );
 }
