@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ButtonLoading } from "@/components/ui/simple_load";
 import LegendKey from "@/components/LegendKey";
+import NavBar from "@/components/NavBar";
 
 /* ---------- tiny “factories” for node types ---------- */
 function makeSymptomNode(id, x, y, symptoms = []) {
