@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DataSet, Network } from "vis-network/standalone";
 import { fetchDiagnosis } from "@/lib/diagnosisApi";
 import {
@@ -64,8 +64,7 @@ function makeTestNode(id, x, y, test = { name: "Test", notes: "" }) {
   return {
     id,
     type: "T",
-
-    label:  "T",
+    label: "T",
     shape: "circle",
     x, y,
     color: { border: "#334155", background: "#e2e8f0" },
@@ -80,6 +79,23 @@ function makeTestNode(id, x, y, test = { name: "Test", notes: "" }) {
     meta: { test },
   };
 }
+function makeAggregatorNode(id, x, y, pending = []) {
+  return {
+    id,
+    type: "P",                    // Pending aggregator
+    label: "+",
+    shape: "circle",
+    x, y,
+    color: { border: "#166534", background: "#dcfce7" }, // green hint
+    widthConstraint: 64,
+    heightConstraint: { minimum: 64, valign: "middle" },
+    margin: 8,
+    font: { size: 30, vadjust: 0 },
+    labelHighlightBold: false,
+    chosen: { label: false },
+    meta: { pending },           // array of { testId, note }
+  };
+}
 
 export default function DiagnosticMapPage() {
   const searchParams = useSearchParams();
@@ -89,6 +105,11 @@ export default function DiagnosticMapPage() {
   const nodesRef = useRef(null);
   const edgesRef = useRef(null);
   const idCounters = useRef({ S: 1, D: 1, T: 1 });
+  const router = useRouter();
+  // aggregatorId -> { symptomId, tests: Map<testId, note> }
+  const pendingByAggRef = useRef(new Map());
+  // testId -> aggregatorId (so 2nd test links to same +)
+  const testToAggRef = useRef(new Map());
 
   // Parse API data from URL parameters
   const getApiData = () => {
@@ -109,7 +130,7 @@ export default function DiagnosticMapPage() {
   };
 
   // which nodes show a hover card? (you can make this dynamic later)
-  const HOVERABLE = useRef(new Set(["S", "D", "T"])); // by type; we’ll check per-node
+  const HOVERABLE = useRef(new Set(["S", "D", "T", "P"])); // by type; we’ll check per-node
 
   // HoverCard state
   const [hover, setHover] = useState({
@@ -129,8 +150,10 @@ export default function DiagnosticMapPage() {
     doctorInput: "",
   });
 
-  // Loading state for test completion
-  const [isLoadingTest, setIsLoadingTest] = useState(false);
+  // Loading state for aggregator "+" button clicks
+  const [isLoadingAggregator, setIsLoadingAggregator] = useState(false);
+  const [loadingNodePosition, setLoadingNodePosition] = useState({ x: 0, y: 0 });
+  const isLoadingRef = useRef(false);
 
   // simple id helper
   const nextId = (type) => {
@@ -139,9 +162,9 @@ export default function DiagnosticMapPage() {
   };
 
   // layout helpers (relative placement)
-  const GAP_Y = 200; // Increased vertical spacing
-  const GAP_X = 200; // Increased horizontal spacing  
-  const NODE_SPACING = 180; // Increased minimum spacing between nodes to prevent overlap
+  const GAP_Y = 140;
+  const GAP_X = 140;
+  const NODE_SPACING = 150; // Minimum spacing between nodes to prevent overlap
   
   // Helper function to check if a position is too close to existing nodes
   const isPositionSafe = (x, y, minDistance = NODE_SPACING) => {
@@ -152,6 +175,57 @@ export default function DiagnosticMapPage() {
       const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
       return distance < minDistance;
     });
+  };
+
+  const getParentSymptomIdForTest = (testId) => {
+    const edges = edgesRef.current?.get() ?? [];
+    for (const e of edges) {
+      if (e.to === testId) {
+        const n = nodesRef.current.get(e.from);
+        if (n?.type === "S") return n.id;
+      }
+    }
+    return null;
+  };
+
+  const ensureAggregatorForSymptom = (symptomId) => {
+    for (const [aggId, meta] of pendingByAggRef.current.entries()) {
+      if (meta.symptomId === symptomId) return aggId;
+    }
+
+    // ---- NEW PLACEMENT LOGIC (bottom-left of tests) ----
+    const tests = getTestsForSymptom(symptomId);
+    // offsets: tune these to taste (px). Positive Y goes downward in vis-network.
+    const OFFSET_X = 60;   // how far left from the leftmost test
+    const OFFSET_Y = 60;   // how far below the lowest test
+
+    let baseX, baseY;
+
+    if (tests.length > 0) {
+      const xs = tests.map(t => t.pos.x);
+      const ys = tests.map(t => t.pos.y);
+      const minX = Math.min(...xs);
+      const maxY = Math.max(...ys);
+
+      baseX = minX - OFFSET_X;   // left of the leftmost test
+      baseY = maxY + OFFSET_Y;   // below the lowest test
+    } else {
+      // Fallback if no tests found (should be rare)
+      const fallback = placeBelow(symptomId, GAP_Y, 0);
+      baseX = fallback.x + 40;
+      baseY = fallback.y + 40;
+    }
+
+    // Nudge to a safe, non-overlapping spot, preferring “left” bias
+    const safe = findSafePosition(baseX, baseY, "right");
+    const aggId = `P-${Date.now()}`;
+    const aggNode = makeAggregatorNode(aggId, safe.x, safe.y, []);
+
+    nodesRef.current.add(aggNode);
+    pendingByAggRef.current.set(aggId, { symptomId, tests: new Map() });
+
+    networkRef.current?.fit({ animation: { duration: 250, easingFunction: "easeInOutCubic" } });
+    return aggId;
   };
   
   // Helper function to find safe position for a node
@@ -183,14 +257,14 @@ export default function DiagnosticMapPage() {
   
   const placeBelow = (parentId, dy = GAP_Y, dx = 0) => {
     const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
-    const baseX = pos.x + dx; // Fixed: should be + not -
-    const baseY = pos.y + dy; // Fixed: should be + not -
+    const baseX = pos.x - dx;
+    const baseY = pos.y - dy;
     
     // Check if the position is safe, if not find a safe alternative
-    if (isPositionSafe(baseX, baseY, NODE_SPACING)) {
+    if (isPositionSafe(baseX, baseY)) {
       return { x: baseX, y: baseY };
     } else {
-      // Find a safe position nearby with increased spacing
+      // Find a safe position nearby
       return findSafePosition(baseX, baseY, 'center');
     }
   };
@@ -310,15 +384,15 @@ export default function DiagnosticMapPage() {
     const diseaseNodes = diseases.length > 0 ? diseases.map((disease, index) => {
       const diseaseId = `D-${idCounters.current.D + index}`;
       
-      // Position diseases on the left side, spread vertically with better spacing
+      // Position diseases on the left side, spread vertically
       let x, y;
       if (diseases.length === 1) {
-        x = -220; // Increased horizontal distance
-        y = 180;  // Increased vertical distance
+        x = -150;
+        y = 120;
       } else {
-        const spacing = 180; // Increased vertical spacing between nodes
+        const spacing = 120; // vertical spacing between nodes
         const startY = -(diseases.length - 1) * spacing / 2;
-        x = -220; // Increased horizontal distance
+        x = -150;
         y = startY + (index * spacing);
       }
       
@@ -333,15 +407,15 @@ export default function DiagnosticMapPage() {
     const testNodes = tests.length > 0 ? tests.map((test, index) => {
       const testId = `T-${idCounters.current.T + index}`;
       
-      // Position tests on the right side, spread vertically with better spacing
+      // Position tests on the right side, spread vertically
       let x, y;
       if (tests.length === 1) {
-        x = 220;  // Increased horizontal distance
-        y = 180;  // Increased vertical distance
+        x = 150;
+        y = 120;
       } else {
-        const spacing = 180; // Increased vertical spacing between nodes
+        const spacing = 120; // vertical spacing between nodes
         const startY = -(tests.length - 1) * spacing / 2;
-        x = 220;  // Increased horizontal distance
+        x = 150;
         y = startY + (index * spacing);
       }
       
@@ -382,6 +456,9 @@ export default function DiagnosticMapPage() {
 
     // HOVER
     network.on("hoverNode", (params) => {
+      // Don't show tooltips during loading
+      if (isLoadingRef.current) return;
+      
       const nodeId = params.node;
       const node = nodesRef.current.get(nodeId);
       if (!node) return;
@@ -402,7 +479,7 @@ export default function DiagnosticMapPage() {
     });
 
     // CLICK (tests open dialog)
-    network.on("click", (params) => {
+    network.on("click", async (params) => {
       if (!params.nodes.length) return;
       const id = params.nodes[0];
       const node = nodesRef.current.get(id);
@@ -415,6 +492,72 @@ export default function DiagnosticMapPage() {
           testName: node.meta?.test?.name ?? "Test",
           doctorInput: "",
         });
+        return;
+      }
+
+      if (node.type === "P") {
+        const aggId = id;
+        const aggMeta = pendingByAggRef.current.get(aggId);
+        if (!aggMeta) return;
+
+        // Close any existing tooltip immediately
+        setHover((h) => ({ ...h, open: false }));
+
+        // Show loading overlay on top of the clicked "+" button
+        const nodePosition = network.getPositions([aggId])[aggId];
+        if (nodePosition && containerRef.current) {
+          const canvasPos = network.canvasToDOM(nodePosition);
+          const containerRect = containerRef.current.getBoundingClientRect();
+          setLoadingNodePosition({
+            x: containerRect.left + canvasPos.x,
+            y: containerRect.top + canvasPos.y,
+          });
+          setIsLoadingAggregator(true);
+          isLoadingRef.current = true;
+        }
+
+        // Gather all symptoms from the parent symptom + add all collected notes
+        const parentSymptomId = aggMeta.symptomId;
+        const baseSymptoms = getAllSymptomsFromGraph(); // includes from every S in graph; OK for now
+        const testNotes = Array.from(aggMeta.tests.values()).filter(Boolean);
+
+        const mergedSymptoms = [...baseSymptoms, ...testNotes];
+        // Transform the "+" into a real Symptom node visually *first* (optimistic UX)
+        nodesRef.current.update({
+          id: aggId,
+          type: "S",
+          label: "S",
+          color: { border: "#334155", background: "#e2e8f0" },
+          meta: { symptoms: mergedSymptoms },
+        });
+
+        try {
+          // Try the API with merged symptoms
+          const apiResponse = await fetchDiagnosis(mergedSymptoms);
+          // Build branches under the (now) Symptom node (was +)
+          buildBranchesUnderSymptom(aggId, apiResponse);
+        } catch (err) {
+          console.error("API failed; falling back to demo branch", err);
+          buildBranchesUnderSymptom(aggId, null); // fallback
+        } finally {
+          // Hide loading overlay
+          setIsLoadingAggregator(false);
+          isLoadingRef.current = false;
+        }
+
+        // Clean up our pending bookkeeping
+        pendingByAggRef.current.delete(aggId);
+
+        return;
+      }
+
+      if (node.type ==="D") {
+          const payload = {
+              diagnosis: node.label,
+              symptoms: getAllSymptomsFromGraph(),
+          };
+          const encoded = encodeURIComponent(JSON.stringify(payload));
+          router.push(`/articles?data=${encoded}`);
       }
     });
 
@@ -442,40 +585,121 @@ export default function DiagnosticMapPage() {
   // Submit doctor input → call API → spawn new triangle with real data
   const handleCompleteTest = async () => {
     if (!testDialog.nodeId) return;
-    
-    // Set loading state before API call
-    setIsLoadingTest(true);
-    
-    try {
-      // Collect all symptoms from the graph
-      const allSymptoms = getAllSymptomsFromGraph();
-      
-      // Add the test result as a "symptom" (or we could structure this differently)
-      const testResult = testDialog.doctorInput.trim();
-      const symptomsWithTestResult = testResult ? [...allSymptoms, testResult] : allSymptoms;
-      
-      console.log("Calling API with symptoms:", symptomsWithTestResult);
-      
-      // Call Flask API with updated symptoms
-      const apiResponse = await fetchDiagnosis(symptomsWithTestResult);
-      console.log("API response for completed test:", apiResponse);
-      
-      // Spawn triangle with real API data
-      spawnTriangleUnderTest(testDialog.nodeId, { 
-        testResultNote: testResult,
-        apiData: apiResponse 
-      });
-      
-    } catch (error) {
-      console.error("Error calling API for completed test:", error);
-      // Fallback to original behavior if API fails
-      spawnTriangleUnderTest(testDialog.nodeId, { testResultNote: testDialog.doctorInput.trim() });
-    } finally {
-      // Hide loading state when API call completes and nodes are created
-      setIsLoadingTest(false);
+
+    const testId = testDialog.nodeId;
+    const note = (testDialog.doctorInput || "").trim();
+
+    // find the parent symptom for this test
+    const symptomId = getParentSymptomIdForTest(testId);
+    if (!symptomId) {
+      console.warn("No parent symptom found for test", testId);
+      setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" });
+      return;
     }
-    
+
+    // ensure one aggregator for this symptom
+    const aggId = ensureAggregatorForSymptom(symptomId);
+
+    // store link in maps
+    testToAggRef.current.set(testId, aggId);
+
+    const aggMeta = pendingByAggRef.current.get(aggId);
+    aggMeta.tests.set(testId, note);
+    pendingByAggRef.current.set(aggId, aggMeta);
+
+    // draw/ensure edge from Test -> Aggregator (avoid duplicates)
+    const existing = edgesRef.current.get({
+      filter: (e) => e.from === testId && e.to === aggId
+    });
+    if (existing.length === 0) {
+      edgesRef.current.add({ id: `${testId}->${aggId}`, from: testId, to: aggId, color: "#0a0a0a" });
+    }
+
+    // update aggregator's pending list (for hover content)
+    const aggNode = nodesRef.current.get(aggId);
+    nodesRef.current.update({
+      id: aggId,
+      meta: { pending: Array.from(aggMeta.tests, ([tid, n]) => ({ testId: tid, note: n })) }
+    });
+
     setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" });
+  };
+
+  const buildBranchesUnderSymptom = (symptomId, apiData) => {
+    const sPos = networkRef.current?.getPositions([symptomId])?.[symptomId] ?? { x: 0, y: 0 };
+
+    const nodesToAdd = [];
+    const edgesToAdd = [];
+
+    if (apiData && apiData.diseases && apiData.tests) {
+      const diseases = apiData.diseases || [];
+      diseases.forEach((disease, index) => {
+        const dId = nextId("D");
+        let baseX = sPos.x - GAP_X;
+        let baseY;
+        if (diseases.length === 1) {
+          baseY = sPos.y + GAP_Y;
+        } else {
+          const spacing = NODE_SPACING;
+          const startY = sPos.y + GAP_Y - (diseases.length - 1) * spacing / 2;
+          baseY = startY + (index * spacing);
+        }
+        const dPos = findSafePosition(baseX, baseY, "left");
+        const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: disease, confidence: 0.72 });
+        nodesToAdd.push(dNode);
+        edgesToAdd.push({ id: `${symptomId}->${dId}`, from: symptomId, to: dId });
+      });
+
+      const tests = apiData.tests || [];
+      tests.forEach((test, index) => {
+        const tId = nextId("T");
+        let baseX = sPos.x + GAP_X;
+        let baseY;
+        if (tests.length === 1) {
+          baseY = sPos.y + GAP_Y;
+        } else {
+          const spacing = NODE_SPACING;
+          const startY = sPos.y + GAP_Y - (tests.length - 1) * spacing / 2;
+          baseY = startY + (index * spacing);
+        }
+        const tPos = findSafePosition(baseX, baseY, "right");
+        const tNode = makeTestNode(tId, tPos.x, tPos.y, {
+          name: test.test_name,
+          notes: test.test_description,
+          cost: test.cost_weight
+        });
+        nodesToAdd.push(tNode);
+        edgesToAdd.push({ id: `${symptomId}->${tId}`, from: symptomId, to: tId });
+      });
+    } else {
+      // Fallback demo
+      const dId = nextId("D");
+      const tId = nextId("T");
+      const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
+      const tPos = { x: sPos.x + GAP_X / 1.3, y: sPos.y + GAP_Y };
+      const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, { label: "New Dx", confidence: 0.42 });
+      const tNode = makeTestNode(tId, tPos.x, tPos.y, { name: "Next Test", notes: "" });
+      nodesToAdd.push(dNode, tNode);
+      edgesToAdd.push(
+        { id: `${symptomId}->${dId}`, from: symptomId, to: dId },
+        { id: `${symptomId}->${tId}`, from: symptomId, to: tId }
+      );
+    }
+
+    nodesRef.current.add(nodesToAdd);
+    edgesRef.current.add(edgesToAdd);
+    networkRef.current?.fit({ animation: { duration: 300, easingFunction: "easeInOutCubic" } });
+  };
+
+  const getTestsForSymptom = (symptomId) => {
+    const edges = edgesRef.current?.get() ?? [];
+    const testIds = edges
+      .filter((e) => e.from === symptomId)
+      .map((e) => e.to)
+      .filter((id) => nodesRef.current.get(id)?.type === "T");
+
+    const posMap = networkRef.current?.getPositions(testIds) ?? {};
+    return testIds.map((id) => ({ id, pos: posMap[id] || { x: 0, y: 0 } }));
   };
 
   return (
@@ -505,6 +729,28 @@ export default function DiagnosticMapPage() {
                 </HoverCardContent>
             </HoverCard>
             </div>
+
+            {/* Loading overlay positioned on top of clicked "+" button */}
+            {isLoadingAggregator && loadingNodePosition && (
+                <div
+                    style={{
+                        position: "fixed",
+                        left: loadingNodePosition.x,
+                        top: loadingNodePosition.y,
+                        transform: "translate(-50%, -50%)",
+                        zIndex: 1000,
+                        pointerEvents: "none",
+                        backgroundColor: "white",
+                        borderRadius: "5%",
+                        padding: "20px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                    }}
+                >
+                    <div style={{borderRadius: "6px" }}>
+                        <ButtonLoading />
+                    </div>
+                </div>
+            )}
         </div>
 
         {/* Test completion dialog */}
@@ -527,16 +773,12 @@ export default function DiagnosticMapPage() {
                 <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
                 Cancel
                 </Button>
-                {isLoadingTest ? (
-                  <ButtonLoading />
-                ) : (
-                  <Button onClick={handleCompleteTest}>Complete Test</Button>
-                )}
+                <Button onClick={handleCompleteTest}>Complete Test</Button>
             </DialogFooter>
             </DialogContent>
         </Dialog>
         </div>
-        <div className="w-full h-10 flex justify-between px-4">
+        {/* <div className="w-full h-10 flex justify-between px-4">
             <div>
                 <Button>Print</Button>
             </div>
@@ -544,7 +786,7 @@ export default function DiagnosticMapPage() {
                 <Button>Force Diagnosis</Button>
                 <Button>Complete Tests</Button>
             </div>  
-        </div>
+        </div> */}
     </div>
   );
 }
@@ -568,6 +810,26 @@ function HoverContent({ nodeType, data }) {
       </div>
     );
   }
+  if (nodeType === "P") {
+  const pending = data?.pending ?? [];
+  return (
+    <div className="text-sm">
+      <div className="font-semibold mb-1">Submit Tests</div>
+      <p className="text-muted-foreground mb-1">
+        Click “+” to apply the completed test(s) and expand the next step.
+      </p>
+      {pending.length ? (
+        <ul className="list-disc pl-4 space-y-0.5">
+          {pending.map((p, i) => (
+            <li key={i}><span className="font-medium">{p.testId}</span>{p.note ? ` — ${p.note}` : ""}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground">No completed tests yet.</p>
+      )}
+    </div>
+  );
+}
   if (nodeType === "D") {
     const dx = data?.diagnosis ?? { label: "Diagnosis", confidence: null };
     return (
