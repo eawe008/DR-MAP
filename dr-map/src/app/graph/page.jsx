@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ButtonLoading } from "@/components/ui/simple_load";
 
 /* ---------- tiny “factories” for node types ---------- */
 function makeSymptomNode(id, x, y, symptoms = []) {
@@ -63,7 +64,8 @@ function makeTestNode(id, x, y, test = { name: "Test", notes: "" }) {
   return {
     id,
     type: "T",
-    label: "T",
+
+    label:  "T",
     shape: "circle",
     x, y,
     color: { border: "#334155", background: "#e2e8f0" },
@@ -127,6 +129,9 @@ export default function DiagnosticMapPage() {
     doctorInput: "",
   });
 
+  // Loading state for test completion
+  const [isLoadingTest, setIsLoadingTest] = useState(false);
+
   // simple id helper
   const nextId = (type) => {
     idCounters.current[type] += 1;
@@ -134,9 +139,9 @@ export default function DiagnosticMapPage() {
   };
 
   // layout helpers (relative placement)
-  const GAP_Y = 140;
-  const GAP_X = 140;
-  const NODE_SPACING = 150; // Minimum spacing between nodes to prevent overlap
+  const GAP_Y = 200; // Increased vertical spacing
+  const GAP_X = 200; // Increased horizontal spacing  
+  const NODE_SPACING = 180; // Increased minimum spacing between nodes to prevent overlap
   
   // Helper function to check if a position is too close to existing nodes
   const isPositionSafe = (x, y, minDistance = NODE_SPACING) => {
@@ -178,14 +183,14 @@ export default function DiagnosticMapPage() {
   
   const placeBelow = (parentId, dy = GAP_Y, dx = 0) => {
     const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
-    const baseX = pos.x + dx;
-    const baseY = pos.y + dy;
+    const baseX = pos.x + dx; // Fixed: should be + not -
+    const baseY = pos.y + dy; // Fixed: should be + not -
     
     // Check if the position is safe, if not find a safe alternative
-    if (isPositionSafe(baseX, baseY)) {
+    if (isPositionSafe(baseX, baseY, NODE_SPACING)) {
       return { x: baseX, y: baseY };
     } else {
-      // Find a safe position nearby
+      // Find a safe position nearby with increased spacing
       return findSafePosition(baseX, baseY, 'center');
     }
   };
@@ -305,15 +310,15 @@ export default function DiagnosticMapPage() {
     const diseaseNodes = diseases.length > 0 ? diseases.map((disease, index) => {
       const diseaseId = `D-${idCounters.current.D + index}`;
       
-      // Position diseases on the left side, spread vertically
+      // Position diseases on the left side, spread vertically with better spacing
       let x, y;
       if (diseases.length === 1) {
-        x = -150;
-        y = 120;
+        x = -220; // Increased horizontal distance
+        y = 180;  // Increased vertical distance
       } else {
-        const spacing = 120; // vertical spacing between nodes
+        const spacing = 180; // Increased vertical spacing between nodes
         const startY = -(diseases.length - 1) * spacing / 2;
-        x = -150;
+        x = -220; // Increased horizontal distance
         y = startY + (index * spacing);
       }
       
@@ -328,15 +333,15 @@ export default function DiagnosticMapPage() {
     const testNodes = tests.length > 0 ? tests.map((test, index) => {
       const testId = `T-${idCounters.current.T + index}`;
       
-      // Position tests on the right side, spread vertically
+      // Position tests on the right side, spread vertically with better spacing
       let x, y;
       if (tests.length === 1) {
-        x = 150;
-        y = 120;
+        x = 220;  // Increased horizontal distance
+        y = 180;  // Increased vertical distance
       } else {
-        const spacing = 120; // vertical spacing between nodes
+        const spacing = 180; // Increased vertical spacing between nodes
         const startY = -(tests.length - 1) * spacing / 2;
-        x = 150;
+        x = 220;  // Increased horizontal distance
         y = startY + (index * spacing);
       }
       
@@ -438,6 +443,9 @@ export default function DiagnosticMapPage() {
   const handleCompleteTest = async () => {
     if (!testDialog.nodeId) return;
     
+    // Set loading state before API call
+    setIsLoadingTest(true);
+    
     try {
       // Collect all symptoms from the graph
       const allSymptoms = getAllSymptomsFromGraph();
@@ -462,6 +470,9 @@ export default function DiagnosticMapPage() {
       console.error("Error calling API for completed test:", error);
       // Fallback to original behavior if API fails
       spawnTriangleUnderTest(testDialog.nodeId, { testResultNote: testDialog.doctorInput.trim() });
+    } finally {
+      // Hide loading state when API call completes and nodes are created
+      setIsLoadingTest(false);
     }
     
     setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" });
@@ -516,7 +527,11 @@ export default function DiagnosticMapPage() {
                 <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
                 Cancel
                 </Button>
-                <Button onClick={handleCompleteTest}>Complete Test</Button>
+                {isLoadingTest ? (
+                  <ButtonLoading />
+                ) : (
+                  <Button onClick={handleCompleteTest}>Complete Test</Button>
+                )}
             </DialogFooter>
             </DialogContent>
         </Dialog>
