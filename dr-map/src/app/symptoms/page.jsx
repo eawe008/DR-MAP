@@ -54,8 +54,8 @@ export default function SymptomsPage() {
 
   return (
     <div className="w-full">
-      <div className="w-1/2 h-screen m-auto flex items-center">
-        <div className="flex flex-col w-full">
+      <div className="h-[calc(100vh-4rem)] flex items-center justify-center px-6">
+        <div className="max-w-2xl w-full text-center">
           <h1 className="text-center font-bold text-3xl">
             Add Patient Symptoms
           </h1>

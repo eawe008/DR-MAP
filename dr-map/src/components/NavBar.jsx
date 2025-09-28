@@ -1,6 +1,7 @@
+"use client";
+
 import Logo from "@/components/navbar-components/logo";
 import { Button } from "@/components/ui/button";
-import Image from "next/image";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -12,16 +13,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { usePathname } from "next/navigation"; // 👈 import
 
-// Navigation links array to be used in both desktop and mobile menus
+// Navigation links array
 const navigationLinks = [
-  { href: "#", label: "Home", active: true },
-  { href: "#", label: "Overview" },
-  { href: "#", label: "Contact" },
-  { href: "#", label: "About" },
+  { href: "/", label: "Home" },
+  { href: "/overview", label: "Overview" },
+  { href: "/contact", label: "Contact" },
+  { href: "/about", label: "About" },
 ];
 
 export default function NavBar() {
+  const pathname = usePathname(); // 👈 get current route
+
   return (
     <header className="border-b px-4 md:px-6">
       <div className="flex h-16 justify-between gap-4">
@@ -32,6 +36,7 @@ export default function NavBar() {
             <Popover>
               <PopoverTrigger asChild>
                 <Button className="group size-8" variant="ghost" size="icon">
+                  {/* mobile icon */}
                   <svg
                     className="pointer-events-none"
                     width={16}
@@ -42,20 +47,8 @@ export default function NavBar() {
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    xmlns="http://www.w3.org/2000/svg"
                   >
-                    <path
-                      d="M4 12L20 12"
-                      className="origin-center -translate-y-[7px] transition-all duration-300 ease-[cubic-bezier(.5,.85,.25,1.1)] group-aria-expanded:translate-x-0 group-aria-expanded:translate-y-0 group-aria-expanded:rotate-[315deg]"
-                    />
-                    <path
-                      d="M4 12H20"
-                      className="origin-center transition-all duration-300 ease-[cubic-bezier(.5,.85,.25,1.8)] group-aria-expanded:rotate-45"
-                    />
-                    <path
-                      d="M4 12H20"
-                      className="origin-center translate-y-[7px] transition-all duration-300 ease-[cubic-bezier(.5,.85,.25,1.1)] group-aria-expanded:translate-y-0 group-aria-expanded:rotate-[135deg]"
-                    />
+                    <path d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
                 </Button>
               </PopoverTrigger>
@@ -66,8 +59,8 @@ export default function NavBar() {
                       <NavigationMenuItem key={index} className="w-full">
                         <NavigationMenuLink
                           href={link.href}
+                          active={pathname === link.href} // 👈 dynamic active
                           className="py-1.5"
-                          active={link.active}
                         >
                           {link.label}
                         </NavigationMenuLink>
@@ -78,19 +71,19 @@ export default function NavBar() {
               </PopoverContent>
             </Popover>
           </div>
+
           {/* Main nav */}
           <div className="flex items-center gap-6">
-            <a href="#" className="text-primary hover:text-primary/90">
+            <a href="/" className="text-primary hover:text-primary/90">
               <Logo />
             </a>
-            {/* Navigation menu */}
             <NavigationMenu className="h-full *:h-full max-md:hidden">
               <NavigationMenuList className="h-full gap-2">
                 {navigationLinks.map((link, index) => (
                   <NavigationMenuItem key={index} className="h-full">
                     <NavigationMenuLink
-                      active={link.active}
                       href={link.href}
+                      active={pathname === link.href} // 👈 dynamic active
                       className="text-muted-foreground hover:text-primary border-b-primary hover:border-b-primary data-[active]:border-b-primary h-full justify-center rounded-none border-y-2 border-transparent py-1.5 font-medium hover:bg-transparent data-[active]:bg-transparent!"
                     >
                       {link.label}
@@ -101,6 +94,7 @@ export default function NavBar() {
             </NavigationMenu>
           </div>
         </div>
+
         {/* Right side */}
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="sm" className="text-sm">
