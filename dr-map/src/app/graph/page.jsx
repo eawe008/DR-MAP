@@ -165,7 +165,6 @@ export default function DiagnosticMapPage() {
     doctorInput: "",
   });
 
-
   // Loading state for aggregator "+" button clicks
   const [isLoadingAggregator, setIsLoadingAggregator] = useState(false);
   const [loadingNodePosition, setLoadingNodePosition] = useState({ x: 0, y: 0 });
@@ -240,7 +239,7 @@ export default function DiagnosticMapPage() {
       if (meta.symptomId === symptomId) return aggId;
     }
 
-    // ---- NEW PLACEMENT LOGIC (bottom-left of tests) ----
+    // ---- placement: bottom-left of tests (with right-bias if crowded) ----
     const tests = getTestsForSymptom(symptomId);
     // offsets: tune these to taste (px). Positive Y goes downward in vis-network.
     const OFFSET_X = 60;   // how far left from the leftmost test
@@ -257,14 +256,14 @@ export default function DiagnosticMapPage() {
 
       baseX = minX - OFFSET_X;   // left of the leftmost test
       baseY = maxY + OFFSET_Y;   // below the lowest test
+
     } else {
-      // Fallback if no tests found (should be rare)
+      // Fallback if no tests found
       const fallback = placeBelow(symptomId, GAP_Y, 0);
       baseX = fallback.x + 40;
       baseY = fallback.y + 40;
     }
 
-    // Nudge to a safe, non-overlapping spot, preferring “left” bias
     const safe = findSafePosition(baseX, baseY, "right");
     const aggId = `P-${Date.now()}`;
     const aggNode = makeAggregatorNode(aggId, safe.x, safe.y, []);
@@ -307,7 +306,7 @@ export default function DiagnosticMapPage() {
     const pos = networkRef.current?.getPositions([parentId])?.[parentId] ?? { x: 0, y: 0 };
     const baseX = pos.x - dx;
     const baseY = pos.y - dy;
-    
+
     // Check if the position is safe, if not find a safe alternative
     if (isPositionSafe(baseX, baseY)) {
       return { x: baseX, y: baseY };
@@ -344,16 +343,11 @@ export default function DiagnosticMapPage() {
       },
     ];
 
-    // Use API data if available, otherwise fallback to demo data
     if (apiData && apiData.diseases && apiData.tests) {
-      console.log("Using API data for new triangle:", apiData);
-
-      // Create disease nodes dynamically with proper spacing
       const diseases = apiData.diseases || [];
       diseases.forEach((disease, index) => {
         const dId = nextId("D");
 
-        // Calculate base position for diseases on the left side
         let baseX = sPos.x - GAP_X;
         let baseY;
 
@@ -375,12 +369,9 @@ export default function DiagnosticMapPage() {
         edgesArray.push({ id: `${sId}->${dId}`, from: sId, to: dId });
       });
 
-      // Create test nodes dynamically with proper spacing
       const tests = apiData.tests || [];
       tests.forEach((test, index) => {
         const tId = nextId("T");
-        
-        // Calculate base position for tests on the right side
         let baseX = sPos.x + GAP_X;
         let baseY;
         
@@ -404,8 +395,6 @@ export default function DiagnosticMapPage() {
         edgesArray.push({ id: `${sId}->${tId}`, from: sId, to: tId });
       });
     } else {
-      // Fallback to demo data
-      console.log("Using fallback demo data");
       const dId = nextId("D");
       const tId = nextId("T");
 
@@ -437,37 +426,33 @@ export default function DiagnosticMapPage() {
   };
 
   useEffect(() => {
-    // Get API data
     const apiData = getApiData();
     console.log("Graph page received data:", apiData);
 
-    // Create symptom node
     const S1 = `S-${idCounters.current.S}`;
     const symptoms = apiData.allSymptoms || [];
 
     const nodesArray = [makeSymptomNode(S1, 0, 0, symptoms)];
     const edgesArray = [];
 
-    // Create disease nodes dynamically
+    // diseases
     const diseases = apiData.diseases || [];
     const diseaseNodes =
       diseases.length > 0
         ? diseases.map((disease, index) => {
             const diseaseId = `D-${idCounters.current.D + index}`;
 
-            // Position diseases on the left side, spread vertically
             let x, y;
             if (diseases.length === 1) {
               x = -150;
               y = 120;
             } else {
-              const spacing = 120; // vertical spacing between nodes
+              const spacing = 120;
               const startY = (-(diseases.length - 1) * spacing) / 2;
               x = -150;
               y = startY + index * spacing;
             }
 
-            // Create edge from symptom to disease
             edgesArray.push({
               id: `${S1}->${diseaseId}`,
               from: S1,
@@ -481,26 +466,24 @@ export default function DiagnosticMapPage() {
           })
         : [];
 
-    // Create test nodes dynamically
+    // tests
     const tests = apiData.tests || [];
     const testNodes =
       tests.length > 0
         ? tests.map((test, index) => {
             const testId = `T-${idCounters.current.T + index}`;
 
-            // Position tests on the right side, spread vertically
             let x, y;
             if (tests.length === 1) {
               x = 150;
               y = 120;
             } else {
-              const spacing = 120; // vertical spacing between nodes
+              const spacing = 120;
               const startY = (-(tests.length - 1) * spacing) / 2;
               x = 150;
               y = startY + index * spacing;
             }
 
-            // Create edge from symptom to test
             edgesArray.push({ id: `${S1}->${testId}`, from: S1, to: testId });
 
             return makeTestNode(testId, x, y, {
@@ -511,12 +494,10 @@ export default function DiagnosticMapPage() {
           })
         : [];
 
-    // Update counters for future nodes
     idCounters.current.D += diseases.length;
     idCounters.current.T += tests.length;
     idCounters.current.S += 1;
 
-    // Combine all nodes
     nodesArray.push(...diseaseNodes, ...testNodes);
 
     const nodes = new DataSet(nodesArray);
@@ -560,11 +541,11 @@ export default function DiagnosticMapPage() {
         data: node.meta,
       });
     });
-    network.on("blurNode", (params) => {
+    network.on("blurNode", () => {
       setHover((h) => ({ ...h, open: false }));
     });
 
-    // CLICK (tests open dialog)
+    // CLICK — use File B’s D-node routing (data= JSON), keep all other File A logic
     network.on("click", async (params) => {
       if (!params.nodes.length) return;
       const id = params.nodes[0];
@@ -604,11 +585,10 @@ export default function DiagnosticMapPage() {
 
         // Gather all symptoms from the parent symptom + add all collected notes
         const parentSymptomId = aggMeta.symptomId;
-        const baseSymptoms = getAllSymptomsFromGraph(); // includes from every S in graph; OK for now
+        const baseSymptoms = getAllSymptomsFromGraph();
         const testNotes = Array.from(aggMeta.tests.values()).filter(Boolean);
 
         const mergedSymptoms = [...baseSymptoms, ...testNotes];
-        // Transform the "+" into a real Symptom node visually *first* (optimistic UX)
         nodesRef.current.update({
           id: aggId,
           type: "S",
@@ -618,9 +598,7 @@ export default function DiagnosticMapPage() {
         });
 
         try {
-          // Try the API with merged symptoms
           const apiResponse = await fetchDiagnosis(mergedSymptoms);
-          // Build branches under the (now) Symptom node (was +)
           buildBranchesUnderSymptom(aggId, apiResponse);
         } catch (err) {
           console.error("API failed; falling back to demo branch", err);
@@ -629,22 +607,24 @@ export default function DiagnosticMapPage() {
           // Hide loading overlay
           setIsLoadingAggregator(false);
           isLoadingRef.current = false;
-
         }
 
-        // Clean up our pending bookkeeping
         pendingByAggRef.current.delete(aggId);
-
         return;
       }
 
+      // ======= D node click: File B format (push /articles?data=<encoded JSON>) =======
       if (node.type === "D") {
         const payload = {
-          diagnosis: node.label,
+          diagnosis: node.meta?.diagnosis?.label ?? node.label, // prefer real disease label
           symptoms: getAllSymptomsFromGraph(),
         };
-        const encoded = encodeURIComponent(JSON.stringify(payload));
-        router.push(`/articles?data=${encoded}`);
+
+        // Build the query safely to avoid stray characters
+        const url = new URL("/articles", window.location.origin);
+        url.searchParams.set("data", JSON.stringify(payload));
+
+        router.push(url.pathname + url.search);
       }
     });
 
@@ -666,7 +646,7 @@ export default function DiagnosticMapPage() {
       }
     });
 
-    return [...new Set(allSymptoms)]; // Remove duplicates
+    return [...new Set(allSymptoms)];
   };
 
   // Submit doctor input → call API → spawn new triangle with real data
@@ -676,7 +656,6 @@ export default function DiagnosticMapPage() {
     const testId = testDialog.nodeId;
     const note = (testDialog.doctorInput || "").trim();
 
-    // find the parent symptom for this test
     const symptomId = getParentSymptomIdForTest(testId);
     if (!symptomId) {
       console.warn("No parent symptom found for test", testId);
@@ -689,17 +668,14 @@ export default function DiagnosticMapPage() {
       return;
     }
 
-    // ensure one aggregator for this symptom
     const aggId = ensureAggregatorForSymptom(symptomId);
 
-    // store link in maps
     testToAggRef.current.set(testId, aggId);
 
     const aggMeta = pendingByAggRef.current.get(aggId);
     aggMeta.tests.set(testId, note);
     pendingByAggRef.current.set(aggId, aggMeta);
 
-    // draw/ensure edge from Test -> Aggregator (avoid duplicates)
     const existing = edgesRef.current.get({
       filter: (e) => e.from === testId && e.to === aggId,
     });
@@ -712,8 +688,6 @@ export default function DiagnosticMapPage() {
       });
     }
 
-    // update aggregator's pending list (for hover content)
-    const aggNode = nodesRef.current.get(aggId);
     nodesRef.current.update({
       id: aggId,
 
@@ -792,7 +766,6 @@ export default function DiagnosticMapPage() {
         });
       });
     } else {
-      // Fallback demo
       const dId = nextId("D");
       const tId = nextId("T");
       const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
@@ -832,251 +805,172 @@ export default function DiagnosticMapPage() {
   };
 
   return (
-    <div>
-        `<div className="px-16 py-8">
-        {/* Relative wrapper so we can absolutely position overlays */}
-        <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
-            {/* vis-network canvas */}
-            <div ref={containerRef} style={{ position: "absolute", inset: 0 }} aria-label="graph-canvas" />
+  <div className="flex h-screen">
+    {/* LEFT: shadcn legend */}
+    <aside className="w-72 shrink-0 border-r bg-background p-4 overflow-y-auto">
+      <LegendKey />
+    </aside>
 
-            {/* Hover anchor at node coordinates */}
-            <div
-            style={{
-                position: "absolute",
-                left: hover.x,
-                top: hover.y,
-                width: 1,
-                height: 1,
-            }}
-            >
-            <HoverCard open={hover.open}>
-                <HoverCardTrigger asChild>
-                <div style={{ width: 1, height: 1 }} />
-                </HoverCardTrigger>
-                <HoverCardContent side="top" align="center" className="w-72">
-                <HoverContent nodeType={hover.nodeType} data={hover.data} />
-                </HoverCardContent>
-            </HoverCard>
-            </div>
+    {/* RIGHT: graph + dialogs + FAB */}
+    <div className="flex-1 px-16 py-8 relative">
+      {/* Graph wrapper */}
+      <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
+        {/* vis-network canvas */}
+        <div
+          ref={containerRef}
+          style={{ position: "absolute", inset: 0 }}
+          aria-label="graph-canvas"
+        />
 
-            {/* Loading overlay positioned on top of clicked "+" button */}
-            {isLoadingAggregator && loadingNodePosition && (
-                <div
-                    style={{
-                        position: "fixed",
-                        left: loadingNodePosition.x,
-                        top: loadingNodePosition.y,
-                        transform: "translate(-50%, -50%)",
-                        zIndex: 1000,
-                        pointerEvents: "none",
-                        backgroundColor: "white",
-                        borderRadius: "5%",
-                        padding: "20px",
-                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                    }}
-                >
-                    <div style={{borderRadius: "6px" }}>
-                        <ButtonLoading />
-                    </div>
-                </div>
-            )}
-        </div>
-
-        {/* Test completion dialog */}
-        <Dialog open={testDialog.open} onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}>
-            <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                Enter doctor notes or the key result (this will annotate the next triangle).
-                </p>
-                <Input
-                placeholder="e.g., Positive flu antigen; mild hypoxia"
-                value={testDialog.doctorInput}
-                onChange={(e) => setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))}
-                />
-            </div>
-            <DialogFooter>
-                <Button variant="secondary" onClick={() => setTestDialog({ open: false, nodeId: null, testName: "", doctorInput: "" })}>
-                Cancel
-                </Button>
-                <Button onClick={handleCompleteTest}>Complete Test</Button>
-            </DialogFooter>
-            </DialogContent>
-        </Dialog>
-        </div>
-        {/* <div className="w-full h-10 flex justify-between px-4">
-            <div>
-                <Button>Print</Button>
-            </div>
-            <div className="flex justify-end gap-4">
-                <Button>Force Diagnosis</Button>
-                <Button>Complete Tests</Button>
-            </div>  
-        </div> */}
-<div className="flex h-screen">
-  {/* LEFT: shadcn legend */}
-  <aside className="w-72 shrink-0 border-r bg-background p-4 overflow-y-auto">
-    <LegendKey />
-  </aside>
-
-  {/* RIGHT: graph + dialogs + FAB */}
-  <div className="flex-1 px-16 py-8 relative">
-    {/* Graph wrapper */}
-    <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
-      {/* vis-network canvas */}
-      <div
-        ref={containerRef}
-        style={{ position: "absolute", inset: 0 }}
-        aria-label="graph-canvas"
-      />
-
-      {/* Hover anchor at node coordinates */}
-      <div
-        style={{
-          position: "absolute",
-          left: hover.x,
-          top: hover.y,
-          width: 1,
-          height: 1,
-        }}
-      >
-        <HoverCard open={hover.open}>
-          <HoverCardTrigger asChild>
-            <div style={{ width: 1, height: 1 }} />
-          </HoverCardTrigger>
-          <HoverCardContent side="top" align="center" className="w-72">
-            <HoverContent nodeType={hover.nodeType} data={hover.data} />
-          </HoverCardContent>
-        </HoverCard>
-      </div>
-
-      {/* Loading overlay positioned on top of clicked "+" button */}
-      {isLoadingAggregator && loadingNodePosition && (
+        {/* Hover anchor at node coordinates */}
         <div
           style={{
-            position: "fixed",
-            left: loadingNodePosition.x,
-            top: loadingNodePosition.y,
-            transform: "translate(-50%, -50%)",
-            zIndex: 1000,
-            pointerEvents: "none",
-            backgroundColor: "white",
-            borderRadius: "5%",
-            padding: "20px",
-            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+            position: "absolute",
+            left: hover.x,
+            top: hover.y,
+            width: 1,
+            height: 1,
           }}
         >
-          <div style={{ borderRadius: "6px" }}>
-            <ButtonLoading />
-          </div>
+          <HoverCard open={hover.open}>
+            <HoverCardTrigger asChild>
+              <div style={{ width: 1, height: 1 }} />
+            </HoverCardTrigger>
+            <HoverCardContent side="top" align="center" className="w-72">
+              <HoverContent nodeType={hover.nodeType} data={hover.data} />
+            </HoverCardContent>
+          </HoverCard>
         </div>
-      )}
-    </div>
 
-    {/* Force Diagnose (FAB) */}
-    <div className="fixed bottom-6 right-6 z-50">
-      <Button
-        onClick={openForceDialog}
-        className="rounded-full px-5 py-3 shadow-lg"
-      >
-        Force Diagnose
-      </Button>
-    </div>
-
-    {/* Test completion dialog */}
-    <Dialog
-      open={testDialog.open}
-      onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Enter doctor notes or the key result (this will annotate the next
-            triangle).
-          </p>
-          <Input
-            placeholder="e.g., Positive flu antigen; mild hypoxia"
-            value={testDialog.doctorInput}
-            onChange={(e) =>
-              setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))
-            }
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              setTestDialog({
-                open: false,
-                nodeId: null,
-                testName: "",
-                doctorInput: "",
-              })
-            }
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleCompleteTest}>Complete Test</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    {/* Force Diagnose dialog */}
-    <Dialog
-      open={forceDialog.open}
-      onOpenChange={(o) => setForceDialog((s) => ({ ...s, open: o }))}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Force a diagnosis?</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            This will stop the flow and take you to the Articles page for more
-            information. Please enter the diagnosis you want to continue with.
-          </p>
-          <Input
-            placeholder="e.g., Influenza A"
-            value={forceDialog.text}
-            onChange={(e) =>
-              setForceDialog((s) => ({ ...s, text: e.target.value }))
-            }
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            variant="secondary"
-            onClick={() => setForceDialog({ open: false, text: "" })}
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={!forceDialog.text.trim()}
-            onClick={() => {
-              setForceDialog({ open: false, text: "" });
-              // NOTE: if your Articles page expects `data=` JSON, swap this for the JSON version:
-              // const payload = { diagnosis: forceDialog.text.trim(), symptoms: getAllSymptomsFromGraph() };
-              // router.push(`/articles?data=${encodeURIComponent(JSON.stringify(payload))}`);
-              router.push(
-                `/articles?dx=${encodeURIComponent(forceDialog.text)}`
-              );
+        {/* Loading overlay positioned on top of clicked "+" button */}
+        {isLoadingAggregator && loadingNodePosition && (
+          <div
+            style={{
+              position: "fixed",
+              left: loadingNodePosition.x,
+              top: loadingNodePosition.y,
+              transform: "translate(-50%, -50%)",
+              zIndex: 1000,
+              pointerEvents: "none",
+              backgroundColor: "white",
+              borderRadius: "5%",
+              padding: "20px",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
             }}
           >
-            Continue to Articles
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  </div>
-</div>
+            <div style={{ borderRadius: "6px" }}>
+              <ButtonLoading />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Force Diagnose (FAB) */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <Button
+          onClick={openForceDialog}
+          className="rounded-full px-5 py-3 shadow-lg"
+        >
+          Force Diagnose
+        </Button>
+      </div>
+
+      {/* Test completion dialog */}
+      <Dialog
+        open={testDialog.open}
+        onOpenChange={(o) => setTestDialog((s) => ({ ...s, open: o }))}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Complete Test: {testDialog.testName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Enter doctor notes or the key result (this will annotate the next
+              triangle).
+            </p>
+            <Input
+              placeholder="e.g., Positive flu antigen; mild hypoxia"
+              value={testDialog.doctorInput}
+              onChange={(e) =>
+                setTestDialog((s) => ({ ...s, doctorInput: e.target.value }))
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setTestDialog({
+                  open: false,
+                  nodeId: null,
+                  testName: "",
+                  doctorInput: "",
+                })
+              }
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCompleteTest}>Complete Test</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Force Diagnose dialog */}
+      <Dialog
+        open={forceDialog.open}
+        onOpenChange={(o) => setForceDialog((s) => ({ ...s, open: o }))}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Force a diagnosis?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This will stop the flow and take you to the Articles page for more
+              information. Please enter the diagnosis you want to continue with.
+            </p>
+
+            <Input
+              placeholder="e.g., Influenza A"
+              value={forceDialog.text}
+              onChange={(e) =>
+                setForceDialog((s) => ({ ...s, text: e.target.value }))
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() => setForceDialog({ open: false, text: "" })}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!forceDialog.text.trim()}
+              onClick={() => {
+                // close dialog
+                setForceDialog({ open: false, text: "" });
+
+                // build the same payload shape as a D-node click
+                const payload = {
+                  diagnosis: forceDialog.text.trim(),
+                  symptoms: getAllSymptomsFromGraph(),
+                };
+
+                // safely encode and push
+                const encoded = encodeURIComponent(JSON.stringify(payload));
+                router.push(`/articles?data=${encoded}`);
+              }}
+            >
+              Continue to Articles
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
-  );
+  </div>
+);
 }
 
 /* ---------- Hover content per node type ---------- */
