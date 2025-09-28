@@ -1,8 +1,8 @@
 "use client";
-
+export const dynamic = "force-dynamic";
 import { useSearchParams } from "next/navigation";
 import LiteratureDisplay from "./components/literature-display";
-export const dynamic = "force-dynamic";
+
 
 export default function ArticlesPage() {
   const searchParams = useSearchParams();
