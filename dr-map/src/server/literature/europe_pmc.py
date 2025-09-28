@@ -29,6 +29,12 @@ def search_articles(keywords, max_results=5):
     articles = []
     for item in data.get("resultList", {}).get("result", []):
         # Flatten fullTextUrlList into a simple list of URLs
+        abstract = item.get("abstractText")
+        doi = item.get("doi")
+
+        if not abstract or not doi:
+            continue
+
         urls = [
             url_entry["url"]
             for url_entry in item.get("fullTextUrlList", {}).get("fullTextUrl", [])
@@ -36,8 +42,8 @@ def search_articles(keywords, max_results=5):
         ]
 
         articles.append({
-            "title": item.get("title"),
-            "abstract": item.get("abstractText"),
+            "title": strip_html(item.get("title")),
+            "abstract": strip_html(item.get("abstractText")),
             "doi": item.get("doi"),
             "url": urls
         })
@@ -73,3 +79,9 @@ def normalize_title(title):
     title = re.sub(r'\s+', ' ', title).strip()
     return title
 
+def strip_html(text: str) -> str:
+    if not text:
+        return text
+
+    text = re.sub(r'<[^>]+>', '', text)
+    return re.sub(r'\s+', ' ', text).strip()

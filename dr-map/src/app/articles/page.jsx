@@ -20,7 +20,7 @@ export default function ArticlesPage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-xl font-bold mb-4">Related Literature</h1>
+      <h1 className="text-xl font-bold mb-6">Related Literature</h1>
       <LiteratureDisplay keywords={keywords} />
     </div>
   );
