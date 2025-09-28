@@ -12,6 +12,13 @@ def next_test_options():
     """Handle preflight OPTIONS request for CORS."""
     return "", 200
 
+@bp.route("/reset", methods=["POST"])
+def reset():
+    """Reset the list of all symptoms."""
+    global allSymptoms
+    allSymptoms = []
+    return jsonify({"message": "Symptoms reset successfully."}), 200
+
 allSymptoms = []
 @bp.post("/next-test")
 def next_test():

@@ -7,6 +7,12 @@ export async function fetchDiagnosis(symptoms, previousTests = [], minCost = 0, 
     n: n
   };
 
+  const reset_list = await fetch(`http://localhost:5050/api/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!reset_list.ok) throw new Error(`HTTP ${reset_list.status}`);
+
   const res = await fetch(`http://localhost:5050/api/next-test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
