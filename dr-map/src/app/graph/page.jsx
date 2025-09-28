@@ -165,8 +165,8 @@ export default function DiagnosticMapPage() {
     doctorInput: "",
   });
 
-  const [forceOpen, setForceOpen] = useState(false);
-  const [forceDxText, setForceDxText] = useState("");
+  const [forceOpen, setForceOpen] = useState(false); // (vestigial but preserved from File A)
+  const [forceDxText, setForceDxText] = useState(""); // (vestigial but preserved from File A)
 
   const openForceDialog = () => {
     setForceDialog({ open: true, text: "" });
@@ -234,11 +234,10 @@ export default function DiagnosticMapPage() {
       if (meta.symptomId === symptomId) return aggId;
     }
 
-    // ---- NEW PLACEMENT LOGIC (bottom-left of tests) ----
+    // ---- placement: bottom-left of tests (with right-bias if crowded) ----
     const tests = getTestsForSymptom(symptomId);
-    // offsets: tune these to taste (px). Positive Y goes downward in vis-network.
-    const OFFSET_X = 60; // how far left from the leftmost test
-    const OFFSET_Y = 60; // how far below the lowest test
+    const OFFSET_X = 60;
+    const OFFSET_Y = 60;
 
     let baseX, baseY;
 
@@ -248,16 +247,15 @@ export default function DiagnosticMapPage() {
       const minX = Math.min(...xs);
       const maxY = Math.max(...ys);
 
-      baseX = minX - OFFSET_X; // left of the leftmost test
-      baseY = maxY + OFFSET_Y; // below the lowest test
+      baseX = minX - OFFSET_X;
+      baseY = maxY + OFFSET_Y;
     } else {
-      // Fallback if no tests found (should be rare)
+      // Fallback if no tests found
       const fallback = placeBelow(symptomId, GAP_Y, 0);
       baseX = fallback.x + 40;
       baseY = fallback.y + 40;
     }
 
-    // Nudge to a safe, non-overlapping spot, preferring “left” bias
     const safe = findSafePosition(baseX, baseY, "right");
     const aggId = `P-${Date.now()}`;
     const aggNode = makeAggregatorNode(aggId, safe.x, safe.y, []);
@@ -286,7 +284,6 @@ export default function DiagnosticMapPage() {
         x += NODE_SPACING * 0.4;
         y += NODE_SPACING * 0.3;
       } else if (side === "center") {
-        // For symptom nodes, try different positions in a spiral pattern
         const angle = (attempts * Math.PI) / 4; // 45-degree increments
         const radius = NODE_SPACING * (0.5 + attempts * 0.3);
         x = baseX + Math.cos(angle) * radius;
@@ -306,11 +303,9 @@ export default function DiagnosticMapPage() {
     const baseX = pos.x - dx;
     const baseY = pos.y - dy;
 
-    // Check if the position is safe, if not find a safe alternative
     if (isPositionSafe(baseX, baseY)) {
       return { x: baseX, y: baseY };
     } else {
-      // Find a safe position nearby
       return findSafePosition(baseX, baseY, "center");
     }
   };
@@ -341,28 +336,22 @@ export default function DiagnosticMapPage() {
       },
     ];
 
-    // Use API data if available, otherwise fallback to demo data
     if (apiData && apiData.diseases && apiData.tests) {
-      console.log("Using API data for new triangle:", apiData);
-
-      // Create disease nodes dynamically with proper spacing
       const diseases = apiData.diseases || [];
       diseases.forEach((disease, index) => {
         const dId = nextId("D");
 
-        // Calculate base position for diseases on the left side
         let baseX = sPos.x - GAP_X;
         let baseY;
 
         if (diseases.length === 1) {
           baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = NODE_SPACING; // Use consistent spacing
+          const spacing = NODE_SPACING;
           const startY = sPos.y + GAP_Y - ((diseases.length - 1) * spacing) / 2;
           baseY = startY + index * spacing;
         }
 
-        // Find safe position that doesn't overlap with existing nodes
         const dPos = findSafePosition(baseX, baseY, "left");
 
         const dNode = makeDiagnosisNode(dId, dPos.x, dPos.y, {
@@ -373,24 +362,21 @@ export default function DiagnosticMapPage() {
         edgesArray.push({ id: `${sId}->${dId}`, from: sId, to: dId });
       });
 
-      // Create test nodes dynamically with proper spacing
       const tests = apiData.tests || [];
       tests.forEach((test, index) => {
         const tId = nextId("T");
 
-        // Calculate base position for tests on the right side
         let baseX = sPos.x + GAP_X;
         let baseY;
 
         if (tests.length === 1) {
           baseY = sPos.y + GAP_Y;
         } else {
-          const spacing = NODE_SPACING; // Use consistent spacing
+          const spacing = NODE_SPACING;
           const startY = sPos.y + GAP_Y - ((tests.length - 1) * spacing) / 2;
           baseY = startY + index * spacing;
         }
 
-        // Find safe position that doesn't overlap with existing nodes
         const tPos = findSafePosition(baseX, baseY, "right");
 
         const tNode = makeTestNode(tId, tPos.x, tPos.y, {
@@ -402,8 +388,6 @@ export default function DiagnosticMapPage() {
         edgesArray.push({ id: `${sId}->${tId}`, from: sId, to: tId });
       });
     } else {
-      // Fallback to demo data
-      console.log("Using fallback demo data");
       const dId = nextId("D");
       const tId = nextId("T");
 
@@ -435,37 +419,33 @@ export default function DiagnosticMapPage() {
   };
 
   useEffect(() => {
-    // Get API data
     const apiData = getApiData();
     console.log("Graph page received data:", apiData);
 
-    // Create symptom node
     const S1 = `S-${idCounters.current.S}`;
     const symptoms = apiData.allSymptoms || [];
 
     const nodesArray = [makeSymptomNode(S1, 0, 0, symptoms)];
     const edgesArray = [];
 
-    // Create disease nodes dynamically
+    // diseases
     const diseases = apiData.diseases || [];
     const diseaseNodes =
       diseases.length > 0
         ? diseases.map((disease, index) => {
             const diseaseId = `D-${idCounters.current.D + index}`;
 
-            // Position diseases on the left side, spread vertically
             let x, y;
             if (diseases.length === 1) {
               x = -150;
               y = 120;
             } else {
-              const spacing = 120; // vertical spacing between nodes
+              const spacing = 120;
               const startY = (-(diseases.length - 1) * spacing) / 2;
               x = -150;
               y = startY + index * spacing;
             }
 
-            // Create edge from symptom to disease
             edgesArray.push({
               id: `${S1}->${diseaseId}`,
               from: S1,
@@ -479,26 +459,24 @@ export default function DiagnosticMapPage() {
           })
         : [];
 
-    // Create test nodes dynamically
+    // tests
     const tests = apiData.tests || [];
     const testNodes =
       tests.length > 0
         ? tests.map((test, index) => {
             const testId = `T-${idCounters.current.T + index}`;
 
-            // Position tests on the right side, spread vertically
             let x, y;
             if (tests.length === 1) {
               x = 150;
               y = 120;
             } else {
-              const spacing = 120; // vertical spacing between nodes
+              const spacing = 120;
               const startY = (-(tests.length - 1) * spacing) / 2;
               x = 150;
               y = startY + index * spacing;
             }
 
-            // Create edge from symptom to test
             edgesArray.push({ id: `${S1}->${testId}`, from: S1, to: testId });
 
             return makeTestNode(testId, x, y, {
@@ -509,12 +487,10 @@ export default function DiagnosticMapPage() {
           })
         : [];
 
-    // Update counters for future nodes
     idCounters.current.D += diseases.length;
     idCounters.current.T += tests.length;
     idCounters.current.S += 1;
 
-    // Combine all nodes
     nodesArray.push(...diseaseNodes, ...testNodes);
 
     const nodes = new DataSet(nodesArray);
@@ -555,11 +531,11 @@ export default function DiagnosticMapPage() {
         data: node.meta,
       });
     });
-    network.on("blurNode", (params) => {
+    network.on("blurNode", () => {
       setHover((h) => ({ ...h, open: false }));
     });
 
-    // CLICK (tests open dialog)
+    // CLICK — use File B’s D-node routing (data= JSON), keep all other File A logic
     network.on("click", async (params) => {
       if (!params.nodes.length) return;
       const id = params.nodes[0];
@@ -581,13 +557,11 @@ export default function DiagnosticMapPage() {
         const aggMeta = pendingByAggRef.current.get(aggId);
         if (!aggMeta) return;
 
-        // Gather all symptoms from the parent symptom + add all collected notes
         const parentSymptomId = aggMeta.symptomId;
-        const baseSymptoms = getAllSymptomsFromGraph(); // includes from every S in graph; OK for now
+        const baseSymptoms = getAllSymptomsFromGraph();
         const testNotes = Array.from(aggMeta.tests.values()).filter(Boolean);
 
         const mergedSymptoms = [...baseSymptoms, ...testNotes];
-        // Transform the "+" into a real Symptom node visually *first* (optimistic UX)
         nodesRef.current.update({
           id: aggId,
           type: "S",
@@ -597,28 +571,29 @@ export default function DiagnosticMapPage() {
         });
 
         try {
-          // Try the API with merged symptoms
           const apiResponse = await fetchDiagnosis(mergedSymptoms);
-          // Build branches under the (now) Symptom node (was +)
           buildBranchesUnderSymptom(aggId, apiResponse);
         } catch (err) {
           console.error("API failed; falling back to demo branch", err);
-          buildBranchesUnderSymptom(aggId, null); // fallback
+          buildBranchesUnderSymptom(aggId, null);
         }
 
-        // Clean up our pending bookkeeping
         pendingByAggRef.current.delete(aggId);
-
         return;
       }
 
+      // ======= D node click: File B format (push /articles?data=<encoded JSON>) =======
       if (node.type === "D") {
         const payload = {
-          diagnosis: node.label,
+          diagnosis: node.meta?.diagnosis?.label ?? node.label, // prefer real disease label
           symptoms: getAllSymptomsFromGraph(),
         };
-        const encoded = encodeURIComponent(JSON.stringify(payload));
-        router.push(`/articles?data=${encoded}`);
+
+        // Build the query safely to avoid stray characters
+        const url = new URL("/articles", window.location.origin);
+        url.searchParams.set("data", JSON.stringify(payload));
+
+        router.push(url.pathname + url.search);
       }
     });
 
@@ -640,7 +615,7 @@ export default function DiagnosticMapPage() {
       }
     });
 
-    return [...new Set(allSymptoms)]; // Remove duplicates
+    return [...new Set(allSymptoms)];
   };
 
   // Submit doctor input → call API → spawn new triangle with real data
@@ -650,7 +625,6 @@ export default function DiagnosticMapPage() {
     const testId = testDialog.nodeId;
     const note = (testDialog.doctorInput || "").trim();
 
-    // find the parent symptom for this test
     const symptomId = getParentSymptomIdForTest(testId);
     if (!symptomId) {
       console.warn("No parent symptom found for test", testId);
@@ -663,17 +637,14 @@ export default function DiagnosticMapPage() {
       return;
     }
 
-    // ensure one aggregator for this symptom
     const aggId = ensureAggregatorForSymptom(symptomId);
 
-    // store link in maps
     testToAggRef.current.set(testId, aggId);
 
     const aggMeta = pendingByAggRef.current.get(aggId);
     aggMeta.tests.set(testId, note);
     pendingByAggRef.current.set(aggId, aggMeta);
 
-    // draw/ensure edge from Test -> Aggregator (avoid duplicates)
     const existing = edgesRef.current.get({
       filter: (e) => e.from === testId && e.to === aggId,
     });
@@ -686,8 +657,6 @@ export default function DiagnosticMapPage() {
       });
     }
 
-    // update aggregator's pending list (for hover content)
-    const aggNode = nodesRef.current.get(aggId);
     nodesRef.current.update({
       id: aggId,
       meta: {
@@ -762,7 +731,6 @@ export default function DiagnosticMapPage() {
         });
       });
     } else {
-      // Fallback demo
       const dId = nextId("D");
       const tId = nextId("T");
       const dPos = { x: sPos.x - GAP_X / 1.3, y: sPos.y + GAP_Y };
@@ -888,6 +856,8 @@ export default function DiagnosticMapPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Force Diagnose dialog */}
         <Dialog
           open={forceDialog.open}
           onOpenChange={(o) => setForceDialog((s) => ({ ...s, open: o }))}
@@ -921,10 +891,18 @@ export default function DiagnosticMapPage() {
               <Button
                 disabled={!forceDialog.text.trim()}
                 onClick={() => {
+                  // close dialog
                   setForceDialog({ open: false, text: "" });
-                  router.push(
-                    `/articles?dx=${encodeURIComponent(forceDialog.text)}`
-                  );
+
+                  // build the same payload shape as a D-node click
+                  const payload = {
+                    diagnosis: forceDialog.text.trim(),
+                    symptoms: getAllSymptomsFromGraph(),
+                  };
+
+                  // safely encode and push
+                  const encoded = encodeURIComponent(JSON.stringify(payload));
+                  router.push(`/articles?data=${encoded}`);
                 }}
               >
                 Continue to Articles
