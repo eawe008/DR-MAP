@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DataSet, Network } from "vis-network/standalone";
 import { fetchDiagnosis } from "@/lib/diagnosisApi";
 import {
@@ -104,6 +104,7 @@ export default function DiagnosticMapPage() {
   const nodesRef = useRef(null);
   const edgesRef = useRef(null);
   const idCounters = useRef({ S: 1, D: 1, T: 1 });
+  const router = useRouter();
   // aggregatorId -> { symptomId, tests: Map<testId, note> }
   const pendingByAggRef = useRef(new Map());
   // testId -> aggregatorId (so 2nd test links to same +)
@@ -520,6 +521,15 @@ export default function DiagnosticMapPage() {
 
         return;
       }
+
+      if (node.type ==="D") {
+          const payload = {
+              diagnosis: node.label,
+              symptoms: getAllSymptomsFromGraph(),
+          };
+          const encoded = encodeURIComponent(JSON.stringify(payload));
+          router.push(`/articles?data=${encoded}`);
+      }
     });
 
     return () => {
@@ -796,3 +806,4 @@ function HoverContent({ nodeType, data }) {
   }
   return <div className="text-sm text-muted-foreground">Node</div>;
 }
+
