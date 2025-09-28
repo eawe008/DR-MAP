@@ -194,4 +194,23 @@
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
   }
+
+  
+}
+
+/* ---- Multi-line clamp utility (no plugin) ---- */
+@layer utilities {
+  .line-clamp {
+    @apply overflow-hidden;
+    display: -webkit-box;          /* required for -webkit-line-clamp */
+    -webkit-box-orient: vertical;  /* vertical flow */
+    -webkit-line-clamp: var(--lines, 3); /* default = 3 lines */
+  }
+
+  /* If you prefer fixed presets: */
+  .line-clamp-2 { --lines: 2; }
+  .line-clamp-3 { --lines: 3; }
+  .line-clamp-4 { --lines: 4; }
+  .line-clamp-5 { --lines: 5; }
+  .line-clamp-8 { --lines: 8; }
 }
