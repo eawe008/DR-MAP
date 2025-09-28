@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import LegendKey from "@/app/components/LegendKey";
+import LegendKey from "@/components/LegendKey";
 
 /* ---------- tiny “factories” for node types ---------- */
 function makeSymptomNode(id, x, y, symptoms = []) {
@@ -211,8 +211,6 @@ export default function DiagnosticMapPage() {
     }
     return null;
   };
-
-  const router = useRouter();
 
   const handleForceDiagnose = (dxOverride) => {
     let dx = (dxOverride || "").trim();
