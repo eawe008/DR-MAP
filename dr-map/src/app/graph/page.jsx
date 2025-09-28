@@ -307,7 +307,7 @@ export default function DiagnosticMapPage() {
     const baseX = pos.x - dx;
     const baseY = pos.y - dy;
 
-    // Check if the position is safe, if not find a safe alternative
+    // Check if the position is safe, if not find a safe alternativ
     if (isPositionSafe(baseX, baseY)) {
       return { x: baseX, y: baseY };
     } else {
