@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DataSet, Network } from "vis-network/standalone";
 import { fetchDiagnosis } from "@/lib/diagnosisApi";
 import {
@@ -87,6 +87,7 @@ export default function DiagnosticMapPage() {
   const nodesRef = useRef(null);
   const edgesRef = useRef(null);
   const idCounters = useRef({ S: 1, D: 1, T: 1 });
+  const router = useRouter();
 
   // Parse API data from URL parameters
   const getApiData = () => {
@@ -411,6 +412,15 @@ export default function DiagnosticMapPage() {
           doctorInput: "",
         });
       }
+
+      if (node.type ==="D") {
+          const payload = {
+              diagnosis: node.label,
+              symptoms: getAllSymptomsFromGraph(),
+          };
+          const encoded = encodeURIComponent(JSON.stringify(payload));
+          router.push(`/articles?data=${encoded}`);
+      }
     });
 
     return () => {
@@ -580,3 +590,4 @@ function HoverContent({ nodeType, data }) {
   }
   return <div className="text-sm text-muted-foreground">Node</div>;
 }
+
