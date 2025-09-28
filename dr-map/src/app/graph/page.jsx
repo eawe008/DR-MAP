@@ -569,37 +569,53 @@ export default function DiagnosticMapPage() {
 
         setHover((h) => ({ ...h, open: false }));
 
-        // mark loading + attach badge to this agg node
+        // 1) mark loading + attach badge to this P node
         setIsLoadingAggregator(true);
         isLoadingRef.current = true;
         setLoadingAggId(aggId);
 
-        // turn "+" into an S with merged symptoms
+        // 2) hide the "+" label while loading (so spinner visually replaces it)
+        nodesRef.current.update({ id: aggId, label: "" });
+
+        // 3) prepare merged symptoms (but DON'T convert to S yet)
         const baseSymptoms = getAllSymptomsFromGraph();
         const testNotes = Array.from(aggMeta.tests.values()).filter(Boolean);
         const mergedSymptoms = [...baseSymptoms, ...testNotes];
 
-        nodesRef.current.update({
-          id: aggId,
-          type: "S",
-          label: "S",
-          color: { border: "#334155", background: "#e2e8f0" },
-          meta: { symptoms: mergedSymptoms },
-        });
-
         try {
           const apiResponse = await fetchDiagnosis(mergedSymptoms);
+
+          // 4) now convert P -> S and attach symptoms
+          nodesRef.current.update({
+            id: aggId,
+            type: "S",
+            label: "S",
+            color: { border: "#334155", background: "#e2e8f0" },
+            meta: { symptoms: mergedSymptoms },
+          });
+
           buildBranchesUnderSymptom(aggId, apiResponse);
         } catch (err) {
           console.error("API failed; falling back to demo branch", err);
+
+          // still convert to S for continuity even on failure
+          nodesRef.current.update({
+            id: aggId,
+            type: "S",
+            label: "S",
+            color: { border: "#334155", background: "#e2e8f0" },
+            meta: { symptoms: mergedSymptoms },
+          });
           buildBranchesUnderSymptom(aggId, null);
         } finally {
+          // 5) clear loading state; spinner disappears
           setIsLoadingAggregator(false);
           isLoadingRef.current = false;
-          setLoadingAggId(null); // badge detaches
+          setLoadingAggId(null);
+
+          pendingByAggRef.current.delete(aggId);
         }
 
-        pendingByAggRef.current.delete(aggId);
         return;
       }
 
@@ -622,7 +638,7 @@ export default function DiagnosticMapPage() {
       if (!pos) return;
       const dom = network.canvasToDOM(pos);
       loadingBadgeRef.current.style.left = `${dom.x}px`;
-      loadingBadgeRef.current.style.top = `${dom.y - 22}px`; // tweak offset (above node)
+      loadingBadgeRef.current.style.top = `${dom.y}px`; // tweak offset (above node)
     };
 
     const onAfterDraw = () => updateBadgePosition();
@@ -652,18 +668,14 @@ export default function DiagnosticMapPage() {
       const pos = network.getPositions([loadingAggId])?.[loadingAggId];
       if (!pos) return;
       const dom = network.canvasToDOM(pos);
-      // badge is inside wrapper (relative). wrapper and canvas share origin, so dom.x/dom.y work.
       loadingBadgeRef.current.style.left = `${dom.x}px`;
-      loadingBadgeRef.current.style.top = `${dom.y - 22}px`; // adjust offset above the node
+      loadingBadgeRef.current.style.top = `${dom.y}px`; // centered
     };
 
     const onAfterDraw = () => updateBadgePosition();
     network.on("afterDrawing", onAfterDraw);
-
-    // also update once immediately (helps on first frame)
     updateBadgePosition();
 
-    // optional: keep it updated on resize
     const onResize = () => updateBadgePosition();
     window.addEventListener("resize", onResize);
 
@@ -865,7 +877,7 @@ export default function DiagnosticMapPage() {
               style={{ transform: "translate(-50%, -50%)" }}
               aria-hidden="true"
             >
-              <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />
+              <span className="inline-block h-4 w-4 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />
             </div>
           )}
 
