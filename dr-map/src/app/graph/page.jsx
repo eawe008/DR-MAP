@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { ButtonLoading } from "@/components/ui/simple_load";
 import LegendKey from "@/components/LegendKey";
 import NavBar from "@/components/NavBar";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /* ---------- tiny “factories” for node types ---------- */
 function makeSymptomNode(id, x, y, symptoms = []) {
@@ -117,6 +118,9 @@ export default function DiagnosticMapPage() {
   const edgesRef = useRef(null);
   const idCounters = useRef({ S: 1, D: 1, T: 1 });
   const router = useRouter();
+
+  const [legendOpen, setLegendOpen] = useState(true);
+
   // aggregatorId -> { symptomId, tests: Map<testId, note> }
   const pendingByAggRef = useRef(new Map());
   // testId -> aggregatorId (so 2nd test links to same +)
@@ -855,14 +859,45 @@ export default function DiagnosticMapPage() {
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="relative flex h-screen">
       {/* LEFT: shadcn legend */}
-      <aside className="w-72 shrink-0 border-r bg-background p-4 overflow-y-auto">
-        <LegendKey />
+      <aside
+        className={[
+          "relative shrink-0 border-r bg-background overflow-y-auto transition-[width,padding] duration-300 ease-in-out flex flex-col items-center",
+          legendOpen ? "w-72 p-4" : "w-0 p-0",
+        ].join(" ")}
+        aria-hidden={!legendOpen}
+      >
+        {legendOpen && <LegendKey />}
+
+        {/* Centered collapse button */}
+        <div className="flex-1 flex items-center">
+          <button
+            onClick={() => setLegendOpen(!legendOpen)}
+            className="flex h-7 w-7 items-center justify-center rounded-full border bg-white shadow hover:bg-gray-50"
+          >
+            {legendOpen ? "‹" : "›"}
+          </button>
+        </div>
       </aside>
 
       {/* RIGHT: graph + dialogs + FAB */}
       <div className="flex-1 px-16 py-8 relative">
+        {/* Toggle button shown when legend is collapsed */}
+        {!legendOpen && (
+          <div className="absolute left-4 top-4 z-50">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLegendOpen(true)}
+              aria-label="Show legend"
+            >
+              <ChevronRight className="mr-1 h-4 w-4" />
+              Legend
+            </Button>
+          </div>
+        )}
+
         {/* Graph wrapper */}
         <div ref={wrapperRef} style={{ position: "relative", height: "82vh" }}>
           {/* vis-network canvas */}
@@ -907,10 +942,7 @@ export default function DiagnosticMapPage() {
 
         {/* Force Diagnose (FAB) */}
         <div className="fixed bottom-6 right-6 z-50">
-          <Button
-            onClick={openForceDialog}
-            className="rounded-full px-5 py-3 shadow-lg"
-          >
+          <Button onClick={openForceDialog} variant={"outline"}>
             Force Diagnose
           </Button>
         </div>
